@@ -3,7 +3,7 @@ import os
 
 load_dotenv()
 
-BOT_TOKEN = "7090927578:AAGwlO8PonwM6a_yUNAM2PSn-d3_WKws6u0"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT", 3306)
 DB_USER = os.getenv("DB_USER")
