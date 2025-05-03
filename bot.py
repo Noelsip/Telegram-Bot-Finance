@@ -133,12 +133,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [["Chat","/saldo", "/history", "/history_today", "/export_mingguan", "/export_bulanan", "/export_tahunan"]]
             markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
             await update.message.reply_text(
-                "Selamat datang, Pedagang! Pilih perintah yang ingin Anda gunakan:\nContoh:\n/saldo",
+                "Selamat datang, Pedagang! Pilih perintah yang ingin Anda gunakan:\nContoh:\n/export_mingguan",
                 reply_markup=markup
             )
         return
     if text == "chat":
-        await update.message.reply_text("Silakan kirimkan pesan transaksi Anda.\nContoh:\n/risol terjual 50rb")
+        await update.message.reply_text("Silakan kirimkan pesan transaksi Anda.\nContoh:\nrisol terjual 50rb")
         return
     
     # Cek role jika sudah ada dan lanjutkan input transaksi
