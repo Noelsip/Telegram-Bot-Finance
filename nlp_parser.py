@@ -8,12 +8,13 @@ kata_pemasukan = ["gaji", "dapat", "masuk", "transfer", "bayaran", "terjual", "j
 kata_pengeluaran = ["makan", "belanja", "bayar", "tagihan", "beli", "pesan", "keluar", "sewa", "hiburan", "transportasi", "angkutan", "mobil", "kesehatan", "obat", "dokter", "pendidikan", "sekolah", "kuliah", "snack", "liburan"]
 
 kategori_kata = {
-    "gaji": ["gaji", "upah", "bayaran"],
-    "makan": ["makan", "minum", "snack"],
+    "gaji": ["gaji", "upah", "transfer", "transferan"],
+    "makan": ["makan", "snack", "makanan", "sarapan", "makan siang", "makan malam", "cemilan"],
+    "minuman": ["minuman", "air", "kopi", "teh"],
     "belanja": ["belanja", "beli"],
     "tagihan": ["tagihan", "sewa", "bayar"],
     "hiburan": ["hiburan", "nonton", "liburan"],
-    "transportasi": ["transportasi", "angkutan", "mobil"],
+    "transportasi": ["transportasi", "angkutan", "mobil", "motor", "bensin"],
     "kesehatan": ["kesehatan", "obat", "dokter"],
     "pendidikan": ["pendidikan", "sekolah", "kuliah"],
     "lainnya": []

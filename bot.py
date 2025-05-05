@@ -235,6 +235,8 @@ async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Delete Daily Transactions Command ---
 async def delete_daily_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    command = update.message.text.lower()
+    mode = command.replace("/hapus_", "")  # dapatkan mode: mingguan, bulanan, tahunan
     
     try:
         db.delete_daily_transactions(user_id)
@@ -246,6 +248,8 @@ async def delete_daily_transactions(update: Update, context: ContextTypes.DEFAUL
 # --- Delete Weekly Transactions Command ---
 async def delete_weekly_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    command = update.message.text.lower()
+    mode = command.replace("/hapus_", "")  # dapatkan mode: mingguan, bulanan, tahunan
     
     try:
         db.delete_weekly_transactions(user_id)
