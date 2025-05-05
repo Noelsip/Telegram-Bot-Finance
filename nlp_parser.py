@@ -4,8 +4,8 @@ import spacy
 nlp = spacy.load("en_core_web_sm")
 
 # Daftar kata kunci sederhana
-kata_pemasukan = ["gaji", "dapat", "masuk", "transfer", "bayaran", "terjual", "jual", "jualan"]
-kata_pengeluaran = ["makan", "belanja", "bayar", "tagihan", "beli", "pesan", "keluar", "sewa"]
+kata_pemasukan = ["gaji", "dapat", "masuk", "transfer", "bayaran", "terjual", "jual", "jualan", "transfer", "terima", "pemasukan", "bonus", "komisi", "uang", "cashback"]
+kata_pengeluaran = ["makan", "belanja", "bayar", "tagihan", "beli", "pesan", "keluar", "sewa", "hiburan", "transportasi", "angkutan", "mobil", "kesehatan", "obat", "dokter", "pendidikan", "sekolah", "kuliah", "snack", "liburan"]
 
 kategori_kata = {
     "gaji": ["gaji", "upah", "bayaran"],

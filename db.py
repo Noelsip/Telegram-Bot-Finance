@@ -206,3 +206,28 @@ def generate_excel_report(user_id, mode):
     df.to_excel(file_path, index=False)
 
     return file_path
+
+# Hapus transaksi hari ini
+def delete_daily_transactions(user_id):
+    execute_query('''
+        DELETE FROM transaksi0
+        WHERE user_id = %s AND DATE(created_at) = CURDATE()
+    ''', (user_id,))
+    print(f"[INFO] Transaksi hari ini untuk user_id {user_id} telah dihapus.")
+    return True
+
+# Hapus transaksi mingguan
+def delete_weekly_transactions(user_id):
+    execute_query('''
+        DELETE FROM transaksi0
+        WHERE user_id = %s AND DATE(created_at) >= CURDATE() - INTERVAL 7 DAY
+    ''', (user_id,))
+    
+# hapus semua transaksi
+def delete_all_transactions(user_id):
+    execute_query('''
+        DELETE FROM transaksi0
+        WHERE user_id = %s
+    ''', (user_id,))
+    print(f"[INFO] Semua transaksi untuk user_id {user_id} telah dihapus.")
+    return True
