@@ -2,7 +2,7 @@
 
 Bot Telegram untuk mencatat pemasukan dan pengeluaran pengguna secara otomatis. Dibuat dengan Python, MySQL, dan dideploy menggunakan Railway.
 
-![Profil Bot](asset\image.png)
+![Profil Bot](asset/image.png)
 
 ## 🚀 Fitur Utama
 
