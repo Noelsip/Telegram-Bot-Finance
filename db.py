@@ -128,9 +128,9 @@ def get_summary_by_user(user_id):
     total_masuk = result[0] or {'total_masuk': 0}
     total_keluar = result[0] or {'total_keluar': 0}
     return {
-        'masuk': total_masuk,
-        'keluar': total_keluar,
-        'saldo': total_masuk - total_keluar
+        'masuk': total_masuk['total_masuk'],
+        'keluar': total_keluar['total_keluar'],
+        'saldo': total_masuk['total_masuk'] - total_keluar['total_keluar']
     }
 
 # Ambil semua transaksi user
