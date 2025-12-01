@@ -125,8 +125,8 @@ def get_summary_by_user(user_id):
         WHERE user_id = %s
     ''', (user_id,), fetch=True)
     
-    total_masuk = result[0]['total_masuk'] if result else 0
-    total_keluar = result[0]['total_keluar'] if result else 0
+    total_masuk = result[0] or {'total_masuk': 0}
+    total_keluar = result[0] or {'total_keluar': 0}
     return {
         'masuk': total_masuk,
         'keluar': total_keluar,
