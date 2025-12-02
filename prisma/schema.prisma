@@ -1,0 +1,96 @@
+generator python {
+  provider = "prisma-client-py"
+  output   = "../prisma-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          BigInt      @id
+  username    String? 
+  displayName String?     @map("display_name")
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  receipts     Receipt[]
+  llmResponses LlmResponse[]
+  transactions Transaction[]
+
+  @@map("users")
+}
+
+model Receipt {
+  id         Int       @id @default(autoincrement())
+  user       User?     @relation(fields: [userId], references: [id])
+  userId     BigInt?   @map("user_id")
+  filePath   String    @map("file_path")
+  fileName   String?   @map("file_name")
+  mimeType   String?   @map("mime_type")
+  fileSize   Int?      @map("file_size")
+  uploadedAt DateTime  @default(now()) @map("uploaded_at")
+
+  ocrTexts   OcrText[]
+  transaction Transaction?  // optional one-to-one link if transaction references receipt
+
+  @@map("receipts")
+  @@index([userId])
+}
+
+model OcrText {
+  id        Int      @id @default(autoincrement())
+  receipt   Receipt  @relation(fields: [receiptId], references: [id])
+  receiptId Int      @map("receipt_id")
+  ocrRaw    String   @map("ocr_raw")
+  ocrMeta   Json?    @map("ocr_meta")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("ocr_texts")
+  @@index([receiptId])
+}
+
+model LlmResponse {
+  id         Int      @id @default(autoincrement())
+  user       User?    @relation(fields: [userId], references: [id])
+  userId     BigInt?  @map("user_id")
+  inputSource String  @map("input_source")
+  inputText  String?  @map("input_text")
+  promptUsed String?  @map("prompt_used")
+  modelName  String?  @map("model_name")
+  llmOutput  Json     @map("llm_output")
+  llmMeta    Json?    @map("llm_meta")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  transaction Transaction?
+
+  @@map("llm_responses")
+  @@index([userId])
+}
+
+model Transaction {
+  id            BigInt    @id @default(autoincrement()) @map("id")
+  user          User?     @relation(fields: [userId], references: [id])
+  userId        BigInt?   @map("user_id")
+  llmResponse   LlmResponse? @relation(fields: [llmResponseId], references: [id])
+  llmResponseId Int?         @map("llm_response_id")
+  receipt       Receipt?     @relation(fields: [receiptId], references: [id])
+  receiptId     Int?         @map("receipt_id")
+
+  intent        String
+  amount        BigInt
+  currency      String     @default("IDR")
+  txDate        DateTime?  @map("tx_date")
+  category      String?
+  note          String?
+  status        String     @default("confirmed")
+  needsReview   Boolean    @default(false) @map("needs_review")
+  extra         Json?      // arbitrary metadata, sanity checks, flags
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  @@map("transactions")
+
+  @@index([userId, txDate], name: "idx_transactions_user_date")
+  @@index([needsReview], name: "idx_transactions_needs_review")
+  @@index([category], name: "idx_transactions_category")
+}
