@@ -1,93 +1,62 @@
-"""
-================================================================================
-FILE: worker/llm/gemini_client.py
-DESKRIPSI: Google Gemini API Client
-ASSIGNEE: @Backend/ML
-PRIORITY: HIGH
-SPRINT: 2
-================================================================================
+import os
+import time
+from typing import Any, Dict, Optional, List
+import google.generativeai as genai
 
-DEPENDENCIES:
-- google-generativeai
+DEFAULT_MODEL = "gemini-1.5-flash"
 
-INSTALL:
-pip install google-generativeai
+def _ensure_configured():
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY tidak ditemukan di env")
+    genai.configure(api_key=api_key)
 
-ENVIRONMENT VARIABLE:
-- GEMINI_API_KEY: API key dari Google AI Studio (https://aistudio.google.com/)
+def _build_model(model_name: str, generation_config:Optional[dict], safety_settings: Optional[list]):
+    kwargs = {}
+    if generation_config:
+        kwargs["generation_config"] = generation_config
+    if safety_settings:
+        kwargs["safety_settings"] = safety_settings
+    return genai.GenerativeModel(model_name=model_name, **kwargs)
 
-TODO [LLM-001]: Initialize Gemini Client
-- Import google.generativeai as genai
-- Configure dengan API key: genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-- Buat model instance: genai.GenerativeModel("gemini-1.5-flash")
-
-MODEL OPTIONS:
-- gemini-1.5-flash: Cepat, murah, cukup untuk parsing (RECOMMENDED)
-- gemini-1.5-pro: Lebih akurat tapi lebih mahal
-- gemini-1.0-pro: Legacy, masih bisa dipakai
-
-TODO [LLM-002]: call_gemini(prompt, model_name="gemini-1.5-flash") -> dict
-Fungsi untuk memanggil Gemini API.
-
-Parameter:
-- prompt: str - Full prompt termasuk system instruction dan few-shot examples
-- model_name: str - Nama model yang digunakan
-
-Return:
-{
-    "text": str,           # Raw response text dari LLM
-    "model": str,          # Model yang digunakan
-    "finish_reason": str,  # "STOP", "MAX_TOKENS", etc.
-    "usage": {
-        "prompt_tokens": int,
-        "completion_tokens": int,
-        "total_tokens": int
-    }
-}
-
-Langkah:
-1. Buat model instance dengan model_name
-2. Call generate_content(prompt)
-3. Extract text dari response.text
-4. Extract usage dari response.usage_metadata
-5. Return formatted dict
-
-TODO [LLM-003]: Error Handling
-Handle errors yang mungkin terjadi:
-- google.api_core.exceptions.ResourceExhausted: Rate limit exceeded
-- google.api_core.exceptions.InvalidArgument: Invalid prompt
-- google.api_core.exceptions.PermissionDenied: Invalid API key
-- Network errors
-
-Untuk rate limit, implement exponential backoff retry.
-
-TODO [LLM-004]: Generation Config (Opsional)
-Customize generation parameters:
-
-generation_config = {
-    "temperature": 0.1,      # Low untuk consistent output
-    "top_p": 0.95,
-    "top_k": 40,
-    "max_output_tokens": 1024,
-}
-
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    generation_config=generation_config
-)
-
-TODO [LLM-005]: Safety Settings (Opsional)
-Disable safety filters jika perlu (untuk financial data):
-
-safety_settings = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-    ...
-]
-
-CATATAN:
-- Gemini API gratis dengan rate limit (15 RPM untuk flash)
-- Untuk production, pertimbangkan paid tier
-- Response time biasanya 1-3 detik
-================================================================================
-"""
+def call_gemini (
+    prompt: str,
+    model_name: str = DEFAULT_MODEL,
+    generation_config: Optional[dict] = None,
+    safety_settings: Optional[list] = None,
+    max_retries: int = 3,
+    backoff_base: float = 0.8
+) -> Dict[str, Any]:
+    _ensure_configured()
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            model = _build_model(model_name, generation_config, safety_settings)
+            response = model.generate_content(prompt)
+            text = getattr(response, "text", "") or ""
+            usage = getattr(response, "usage_metadata", {}) or {} 
+            # mengambil finish reason jika tersedia
+            finish_reason = "UNKNOWN"
+            try:
+                cand = (getattr(response, "candidates", []))
+                fr = getattr(cand[0], "finish_reason", None)
+                finish_reason = getattr(fr, "name", fr) or "UNKNOWN"
+            except Exception as e:
+                pass
+            
+            return {
+                "text": text,
+                "model": model_name,
+                "finish_reason": finish_reason,
+                "usage": {
+                    "prompt_tokens": getattr(usage, "prompt_token_count", 0) or usage.get("prompt_token_count", 0),
+                    "completion_tokens": getattr(usage, "candidates_token_count", 0) or usage.get("candidates_token_count", 0),
+                    "total_tokens": getattr(usage, "total_token_count", 0) or usage.get("total_token_count", 0),
+                },
+            }
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries - 1:
+                time.sleep(backoff_base * (2 ** attempt))
+            else:
+                raise last_err
