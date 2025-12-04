@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 # Install system dependencies + Tesseract
 RUN apt-get update && apt-get install -y \
@@ -35,7 +35,7 @@ RUN npm config set registry https://registry.npmmirror.com/ \
     && npm config set registry https://registry.npmjs.org/
 
 # Generate Prisma Client
-RUN npx prisma generate
+RUN python -m prisma generate
 
 # Copy application code
 COPY . .
