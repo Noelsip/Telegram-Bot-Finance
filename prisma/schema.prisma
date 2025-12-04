@@ -1,0 +1,108 @@
+generator client {
+  provider             = "prisma-client-py"
+  recursive_type_depth = 5
+  interface            = "asyncio"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Menyimpan data user
+model User {
+  id          BigInt      @id
+  username    String?
+  displayName String     @map("display_name")
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  receipts     Receipt[]
+  llmResponses LlmResponse[]
+  transactions Transaction[]
+
+  @@map("users")
+}
+
+// menyimpan metadata foto struk yang diupload
+model Receipt {
+  id         Int       @id @default(autoincrement())
+  userId     BigInt   @map("user_id")
+  filePath   String    @map("file_path")
+  fileName   String   @map("file_name")
+  mimeType   String   @map("mime_type")
+  fileSize   Int      @default(0) @map("file_size")
+  uploadedAt DateTime  @default(now()) @map("uploaded_at")
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ocrTexts   OcrText[]
+  transaction Transaction?  
+
+  @@index([userId])
+  @@map("receipts")
+}
+
+// Menyimpan hasil ocr dari foto struk
+model OcrText {
+  id        Int      @id @default(autoincrement())
+  receiptId Int      @map("receipt_id")
+  ocrRaw    String   @map("ocr_raw") @db.Text
+  ocrMeta   Json?    @map("ocr_meta")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  receipt   Receipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@map("ocr_texts")
+  @@index([receiptId])
+}
+
+// Menyimpan semua output LLM 
+model LlmResponse {
+  id         Int      @id @default(autoincrement())
+  userId     BigInt?  @map("user_id")
+  inputSource String  @map("input_source")
+  inputText  String?  @map("input_text") @db.Text
+  promptUsed String?  @map("prompt_used") @db.Text
+  modelName  String?  @map("model_name") @default("gemini-1.5-flash")
+  llmOutput  Json     @map("llm_output")
+  llmMeta    Json?    @map("llm_meta")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction Transaction[]
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("llm_responses")
+}
+
+// Menyimpan transaksi final
+model Transaction {
+  id            BigInt       @id @default(autoincrement())
+  userId        BigInt?      @map("user_id")
+  llmResponseId Int?         @map("llm_response_id")
+  receiptId     Int?         @map("receipt_id") @unique
+
+  // Data transaksi
+  intent        String
+  amount        Int
+  currency      String     @default("IDR")
+  txDate        DateTime?  @map("tx_date")
+  category      String
+  note          String?    @db.Text
+  
+  status        String     @default("confirmed")
+  needsReview   Boolean    @default(false) @map("needs_review")
+  extra         Json?      // arbitrary metadata, sanity checks, flags
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+    // Relations
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  llmResponse LlmResponse? @relation(fields: [llmResponseId], references: [id], onDelete: SetNull)
+  receipt     Receipt?     @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([needsReview]) 
+  @@index([intent]) 
+  @@map("transactions")
+}

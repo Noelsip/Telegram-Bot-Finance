@@ -4,6 +4,9 @@ import config
 from telegram import Update, ReplyKeyboardMarkup, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from nlp_parser import parse_transaksi
+from worker.llm.prompts import build_prompt
+from worker.llm.gemini_client import call_gemini
+from worker.llm.parser import parse_llm_response
 
 # daftar perintah tersedia
 commands = {
@@ -16,23 +19,23 @@ commands = {
     "/history_kategori": "Riwayat transaksi berdasarkan kategori",
     "/export_mingguan": "Ekspor data mingguan",
     "/export_bulanan": "Ekspor data bulanan",
-    "/export_tahunan": "Ekspor data tahunan"
+    "/export_tahunan": "Ekspor data tahunan",
+    "/ai": "Analisis transaksi dengan AI"
 }
 
-# --- Start Command Handler ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Pengguna Biasa", "Pedagang"]]
-    markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    
-    try:
-        await update.message.reply_text(
-        "Selamat datang! Silakan pilih jenis pengguna Anda:",
-        reply_markup=markup
-    )
-    except httpx.ConnectTimeout:
-        print("Timeout saat mengirim pesan ke Telegram.")
+async def ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = " ".join(context.args)
+    if not text:
+        return await update.message.reply_text("Contoh: /ai makan siang 25rb")
+    resp = call_gemini(build_prompt(text), generation_config={"temperature":0.1, "max_output_tokens":512})
+    parsed = parse_llm_response(resp)
+    if parsed["parse_success"] and parsed["intent"] in ("masuk","keluar") and parsed["amount"]>0:
+        db.insert_transaction(update.effective_user.id, parsed["amount"], parsed["category"], 
+                              "masuk" if parsed["intent"]=="masuk" else "keluar", parsed["note"] or text)
+        return await update.message.reply_text(f"✅ Dicatat: [{parsed['intent']}] {parsed['category']} Rp{parsed['amount']:,}")
+    else:
+        return await update.message.reply_text("Maaf, input kurang jelas. Coba perbaiki nominal/konteks.")
 
-    
 # --- Handler Role & NLP Input ---
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
@@ -40,7 +43,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Menangani pemilihan role pertama kali
     if text in ["pengguna biasa", "pedagang"]:
-        db.set_user_role(user_id, text)
+        db.set_user_role(user_id, text) 
         try:
             await update.message.reply_text(f"✅ Anda telah terdaftar sebagai '{text}'.\n")
         except httpx.ConnectTimeout:
@@ -394,6 +397,7 @@ async def main():
     app.add_handler(CommandHandler("hapus_hari_ini", delete_daily_transactions))
     app.add_handler(CommandHandler("hapus_minggu_ini", delete_weekly_transactions))
     app.add_handler(CommandHandler("hapus_semua", delete_all_transactions))
+    app.add_handler(CommandHandler("ai", ai))
 
     print("🤖 Bot berjalan...")
     await app.run_polling()
