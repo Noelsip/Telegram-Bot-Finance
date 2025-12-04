@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 from pydantic import BaseModel, field_validator, Field
-from .enums import IntentType, InputSource, TransactionStatus
+from .enums import IntentType, InputSource
 
 class LLMOutputSchema(BaseModel):
     intent: IntentType

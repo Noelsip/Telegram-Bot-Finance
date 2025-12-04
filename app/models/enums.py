@@ -12,20 +12,12 @@ from enum import Enum
 
 
 class IntentType(str, Enum):
-    MASUK = "masuk"
-    KELUAR = "keluar"
-    LAINNYA = "lainnya"
-
+    PEMASUKAN   = "pemasukan"
+    PENGELUARAN = "pengeluaran"
 
 class InputSource(str, Enum):
     TEXT = "text"
     OCR = "ocr"
-
-
-class TransactionStatus(str, Enum):
-    CONFIRMED = "confirmed"
-    PENDING = "pending"
-    REJECTED = "rejected"
 
 
 class MessageSource(str, Enum):
