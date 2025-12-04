@@ -6,14 +6,28 @@ ASSIGNEE: @Backend
 PRIORITY: LOW
 SPRINT: 1
 ================================================================================
-
-TODO [ENUM-001]: Definisi semua enums
-Bisa digabung ke schemas.py atau pisah di sini.
-
-Enums yang dibutuhkan:
-- IntentType: masuk, keluar, lainnya
-- InputSource: text, ocr
-- TransactionStatus: confirmed, pending, rejected
-- MessageSource: telegram, whatsapp
-================================================================================
 """
+
+from enum import Enum
+
+
+class IntentType(str, Enum):
+    MASUK = "masuk"
+    KELUAR = "keluar"
+    LAINNYA = "lainnya"
+
+
+class InputSource(str, Enum):
+    TEXT = "text"
+    OCR = "ocr"
+
+
+class TransactionStatus(str, Enum):
+    CONFIRMED = "confirmed"
+    PENDING = "pending"
+    REJECTED = "rejected"
+
+
+class MessageSource(str, Enum):
+    TELEGRAM = "telegram"
+    WHATSAPP = "whatsapp"
