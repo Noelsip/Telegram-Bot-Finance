@@ -36,7 +36,6 @@ RUN npm config set registry https://registry.npmmirror.com/ \
 
 # Generate Prisma Client
 RUN python -m prisma generate
-
 # Copy application code
 COPY . .
 
