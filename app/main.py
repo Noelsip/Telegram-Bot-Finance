@@ -1,46 +1,83 @@
-"""
-================================================================================
-FILE: app/main.py
-DESKRIPSI: FastAPI Entry Point - Webhook Gateway
-ASSIGNEE: @Backend
-PRIORITY: HIGH
-SPRINT: 1
-================================================================================
+from contextlib import asynccontextmanager
+from datetime import datetime
+import logging
 
-TODO [MAIN-001]: Setup FastAPI Application
-- Import FastAPI, CORSMiddleware
-- Buat instance FastAPI dengan title="Finance Tracker API"
-- Tambahkan CORS middleware (allow all origins untuk development)
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+import httpx
 
-TODO [MAIN-002]: Prisma Client Lifecycle
-- Import Prisma dari prisma client
-- Buat lifespan context manager:
-  - Pada startup: await prisma.connect()
-  - Pada shutdown: await prisma.disconnect()
-- Attach lifespan ke FastAPI app
+# Import Prisma client
+from app.db import prisma, connect_db
 
-TODO [MAIN-003]: Mount Webhook Routers
-- Import router dari app.webhook.telegram
-- Import router dari app.webhook.whatsapp
-- Mount telegram router di prefix="/webhook/telegram"
-- Mount whatsapp router di prefix="/webhook/whatsapp"
+# Import routers
+from app.webhook import telegram_router, whatsapp_router\
 
-TODO [MAIN-004]: Health Check Endpoint
-- GET /health -> return {"status": "ok", "timestamp": datetime.now()}
-- GET /health/db -> test koneksi database, return status
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
-TODO [MAIN-005]: Error Handlers
-- Buat global exception handler
-- Log semua errors ke console/file
-- Return proper HTTP error responses
+# Global HTTPX Client (dipakai untuk bot API, OCR, AI service, dll)
+http_client: httpx.AsyncClient | None = None
 
-DEPENDENCIES:
-- fastapi
-- uvicorn
-- prisma-client-py
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        await connect_db()
+        logger.info("✅ Database connected successfully")
+        
+        http_client = httpx.AsyncClient(timeout=20.0)
+        logger.info("🌐 HTTP client initialized")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to database: {e}")
+        raise
+    
+    yield
 
-COMMAND UNTUK RUN:
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-================================================================================
-"""
+#Setup FastAPI app
+app = FastAPI(
+    title="Finance Tracker API",
+    description="Telegram & WhatsApp Bot untuk tracking keuangan dengan OCR dan AI",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
+#webhook routers
+app.include_router(telegram_router, prefix="/webhook/telegram", tags=["Telegram"])
+app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
+
+#error handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handler untuk HTTP exceptions"""
+    logger.warning(f"HTTP Exception: {exc.status_code} - {exc.detail} - Path: {request.url.path}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": True,
+            "status_code": exc.status_code,
+            "message": exc.detail,
+            "path": request.url.path,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler untuk semua unhandled exceptions"""
+    logger.error(f"Unhandled Exception: {str(exc)} - Path: {request.url.path}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "status_code": 500,
+            "message": "Internal Server Error",
+            "detail": str(exc),
+            "path": request.url.path,
+            "timestamp": datetime.now().isoformat()
+        }
+    )

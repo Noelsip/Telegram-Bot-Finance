@@ -1,14 +1,12 @@
 from enum import Enum
 
-
 class IntentType(str, Enum):
     PEMASUKAN   = "pemasukan"
     PENGELUARAN = "pengeluaran"
 
-class InputSource(str, Enum):
+class InputType(str, Enum):
     TEXT = "text"
-    OCR = "ocr"
-
+    IMAGE = "image"
 
 class MessageSource(str, Enum):
     TELEGRAM = "telegram"

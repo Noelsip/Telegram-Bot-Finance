@@ -2,7 +2,7 @@ from app.models import IntentType,InputSource,MessageSource, LLMOutputSchema,Tra
 
 __all__ = [
     "IntentType",
-    "InputSource",
+    "InputType",
     "MessageSource",
     "LLMOutputSchema",
     "TransactionCreateSchema",
