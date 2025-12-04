@@ -1,8 +1,8 @@
-from app.models import IntentType,InputSource,MessageSource, LLMOutputSchema,TransactionCreateSchema,TransactionResponseSchema,WebhookPayloadSchema
+from app.models import IntentType,Inputtype,MessageSource, LLMOutputSchema,TransactionCreateSchema,TransactionResponseSchema,WebhookPayloadSchema
 
 __all__ = [
     "IntentType",
-    "InputSource",
+    "Inputtype",
     "MessageSource",
     "LLMOutputSchema",
     "TransactionCreateSchema",

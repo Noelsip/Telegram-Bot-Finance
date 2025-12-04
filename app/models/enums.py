@@ -5,7 +5,7 @@ class IntentType(str, Enum):
     PEMASUKAN   = "pemasukan"
     PENGELUARAN = "pengeluaran"
 
-class InputSource(str, Enum):
+class Inputtype(str, Enum):
     TEXT = "text"
     OCR = "ocr"
 
