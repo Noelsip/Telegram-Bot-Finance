@@ -108,7 +108,7 @@ def test_preprocessing_only():
     print("PREPROCESSING TEST")
     print("=" * 60)
     
-    sample_image_path = "upload/receipts/sample_receipt.jpg"
+    sample_image_path = "upload/receipts/struk.jpg"
     
     if not os.path.exists(sample_image_path):
         print(f"\n⚠️  Sample image not found: {sample_image_path}")

@@ -189,7 +189,7 @@ class ImagePreprocessor:
             255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY,
-            blocksize=15,
+            blockSize=15,
             C=3
         )
 
@@ -218,4 +218,4 @@ class ImagePreprocessor:
         opened = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
 
         closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
-        return opened
+        return closed

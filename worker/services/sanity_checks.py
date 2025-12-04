@@ -1,91 +1,145 @@
-"""
-================================================================================
-FILE: worker/services/sanity_checks.py
-DESKRIPSI: Sanity Checks untuk validasi hasil LLM
-ASSIGNEE: @Backend
-PRIORITY: HIGH
-SPRINT: 2
-================================================================================
+from datetime import datetime, timedelta
+from typing import Dict, List
+import logging
 
-TODO [SANITY-001]: run_sanity_checks(parsed_output) -> dict
-Fungsi utama untuk menjalankan semua sanity checks.
-
-Parameter:
-- parsed_output: dict hasil dari llm.parser.parse_llm_response()
-
-Return:
-{
-    "needs_review": bool,           # True jika ada flag yang trigger
-    "flags": [str],                 # List of triggered flags
-    "adjusted_confidence": float,   # Confidence setelah adjustment
-    "warnings": [str],              # Warning messages
-    "normalized_date": str | None   # Tanggal yang sudah dinormalisasi
-}
-
-TODO [SANITY-002]: check_amount_validity(amount) -> dict
-Validasi amount.
-
-Rules:
-- amount <= 0: INVALID, flag "invalid_amount"
-- amount > 1_000_000_000 (1 miliar): flag "unusually_high_amount"
-- amount < 1000: flag "unusually_low_amount" (warning only)
-
-Return: {"valid": bool, "flag": str | None, "warning": str | None}
-
-TODO [SANITY-003]: check_confidence_threshold(confidence) -> dict
-Check confidence level.
-
-Rules:
-- confidence < 0.6: needs_review = True, flag "low_confidence"
-- confidence < 0.4: tambah flag "very_low_confidence"
-
-Return: {"needs_review": bool, "flag": str | None}
-
-TODO [SANITY-004]: normalize_date(date_str) -> str | None
-Normalisasi tanggal ke ISO format.
-
-Input bisa berupa:
-- "2024-12-01" -> "2024-12-01"
-- "01/12/2024" -> "2024-12-01"
-- "1 Des 2024" -> "2024-12-01"
-- None atau invalid -> None
-
-Gunakan dateutil.parser atau manual parsing.
-
-Jika tanggal di masa depan > 7 hari: flag "future_date"
-Jika tanggal terlalu lampau > 1 tahun: flag "old_date"
-
-TODO [SANITY-005]: check_category_validity(category) -> dict
-Validasi kategori.
-
-Rules:
-- Jika category kosong atau "lainnya": warning "uncategorized"
-- Normalize category ke lowercase
-- Map typos ke kategori yang benar (opsional)
+logger = logging.getLogger(__name__)
 
 VALID_CATEGORIES = [
-    "makan", "minuman", "belanja", "transportasi", "tagihan",
-    "hiburan", "kesehatan", "pendidikan", "gaji", "transfer", "lainnya"
-]
+    "makan",
+    "minuman",
+    "belanja",
+    "transportasi",
+    "tagihan",
+    "hiburan",
+    "kesehatan",
+    "pendidikan",
+    "gaji",
+    "transfer",
+    "lainnya"
+    ]
+    
+CATEGORY_MAPPING = {
+    # Typo / singkatan
+    "mkn": "makan",
+    "minum": "minuman",
+    "transport": "transportasi",
+    "bill": "tagihan",
+    "health": "kesehatan",
+    "salary": "gaji",
+    
+    # Bahasa Inggris
+    "food": "makan",
+    "drink": "minuman",
+    "shopping": "belanja",
+    "entertainment": "hiburan",
+    "education": "pendidikan",
+    
+    # Common variations
+    "jajan": "makan",
+    "bensin": "transportasi",
+    "ojol": "transportasi",
+    "parkir": "transportasi",
+    "wifi": "tagihan",
+    "listrik": "tagihan",
+    "air": "tagihan",
+    "pulsa": "tagihan",
+    "game": "hiburan",
+    "nonton": "hiburan",
+    "obat": "kesehatan",
+    "dokter": "kesehatan",
+    "sekolah": "pendidikan",
+    "kursus": "pendidikan",
+    "gaji bulanan": "gaji",
+    "transfer uang": "transfer",
+}
 
-TODO [SANITY-006]: check_intent_amount_match(intent, amount) -> dict
-Cross-check intent dengan amount.
+def run_sanity_checks(parsed_output: Dict) -> Dict:
+    """
+    Jalankan sanity checks pada parsed output dari LLM.
+    
+    Returns:
+        Dict: needs_review, flags, adjusted_confidence, warning
+    """
+    
+    flags = []
+    warnings = []
+    needs_review = False
 
-Rules:
-- intent = "masuk" dan amount sangat kecil (<10000): warning
-- intent = "keluar" dan amount sangat besar (>10jt): warning untuk personal
+    # Check amount
+    amount = parsed_output.get("amount", 0)
+    if amount <= 0:
+        flags.append("Invalid Amount")
+        warnings.append("Amount tidak valid")
+        needs_review = True
+        
+    # Confidence Threshold
+    confidence = parsed_output.get("confidence", 0.0)
+    if confidence < 0.4:
+        flags.append("Low Confidence")
+        warnings.append("Confidence sangat rendah")
+        needs_review = True
+    elif confidence < 0.6:
+        flags.append("Moderate Confidence")
+        warnings.append("Confidence cukup rendah")
+        needs_review = True
+        
+    # Category Validation + normalization
+    category_result = validate_and_normalize_category(
+        parsed_output.get("category", "lainnya")
+    )
+    normalized_category = category_result["normalized"]
+    
+    if category_result["was_corrected"]:
+        warnings.append(
+            f"Kategori dikoreksi: '{parsed_output.get('category')}' → '{normalized_category}'"
+        )
 
-TODO [SANITY-007]: aggregate_checks(check_results) -> dict
-Aggregate semua hasil check ke final result.
+    # Intent match
+    penalty = len(flags) * 0.05
+    adjust_confidence = max(0.0, confidence - penalty)
 
-Logic:
-- needs_review = True jika ANY flag yang critical
-- adjusted_confidence = original_confidence * penalty_factor
-- Collect semua flags dan warnings
-
-CATATAN:
-- Sanity checks adalah safety net
-- Better to flag false positives than miss issues
-- User bisa review dan approve flagged transactions
-================================================================================
-"""
+    result = {
+        "needs_review": needs_review,
+        "flags": flags,
+        "adjusted_confidence": adjust_confidence,
+        "warning": "; ".join(warnings),
+        "normalized_category": normalized_category
+    }
+    
+    logger.info(
+        f"Sanity checks: needs_review={needs_review},"
+        f"flags={len(flags)}, adjusted_confidence={adjust_confidence:.2f}"
+    )
+    
+    return result
+    
+    
+def validate_and_normalize_category(category: str) -> Dict:
+    """
+    Validate dan normalize category
+    
+    Returns:
+        {
+            "normalized": str,      # Category yang sudah dinormalisasi
+            "was_corrected": bool   # Apakah ada koreksi?
+        }
+    """
+    if not category:
+        return {"normalized": "lainnya", "was_corrected": True}
+    
+    normalized = category.lower().strip()
+    
+    # Exact match
+    if normalized in VALID_CATEGORIES:
+        return {"normalized": normalized, "was_corrected": False}
+    
+    # Try mapping
+    if normalized in CATEGORY_MAPPING:
+        mapped = CATEGORY_MAPPING[normalized]
+        logger.debug(f"Category mapped: '{category}' → '{mapped}'")
+        return {"normalized": mapped, "was_corrected": True}
+    
+    # Fuzzy match (optional: bisa pakai difflib untuk typo detection)
+    # For now, fallback ke "lainnya"
+    logger.warning(f"Unknown category: '{category}', fallback to 'lainnya'")
+    return {"normalized": "lainnya", "was_corrected": True}

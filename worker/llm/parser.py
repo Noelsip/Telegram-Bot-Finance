@@ -7,7 +7,10 @@ def extract_json_from_text(text: str) -> str:
     return m.group(0)
 
 def validate_parsed_output(p: dict) -> dict:
-    intent = p.get("intent") if p.get("intent") in {"masuk","keluar","lainnya"} else "lainnya"
+    intent = p.get("intent")
+    if intent not in {"masuk", "keluar"}:
+            raise ValueError(f"Invalid intent: {intent}. Must be 'masuk' or 'keluar'")    
+    
     amount = int(p.get("amount") or 0)
     conf = float(p.get("confidence") or 0.0)
     date = p.get("date")
@@ -17,9 +20,14 @@ def validate_parsed_output(p: dict) -> dict:
     category = p.get("category") or "lainnya"
     note = p.get("note") or ""
     return {
-        "intent": intent, "amount": max(0, amount), "currency": "IDR",
-        "date": date, "category": category, "note": note,
-        "confidence": max(0.0, min(1.0, conf)), "parse_success": True,
+        "intent": intent,
+        "amount": max(0, amount),
+        "currency": "IDR",
+        "date": date,
+        "category": category,
+        "note": note,
+        "confidence": max(0.0, min(1.0, conf)),
+        "parse_success": True,
         "raw_output": p
     }
 
@@ -30,8 +38,14 @@ def parse_llm_response(llm_response: dict) -> dict:
         return validate_parsed_output(obj)
     except Exception as e:
         return {
-            "intent":"lainnya","amount":0,"currency":"IDR","date":None,
-            "category":"lainnya","note":"Gagal parse response LLM",
-            "confidence":0.0,"parse_success":False,"error":str(e),
+            "intent": None,
+            "amount":0,
+            "currency":"IDR",
+            "date":None,
+            "category":"lainnya",
+            "note":"Gagal parse response LLM",
+            "confidence":0.0,
+            "parse_success":False,
+            "error":str(e),
             "raw_output": llm_response.get("text","")
         }
