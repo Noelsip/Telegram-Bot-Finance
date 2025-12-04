@@ -64,3 +64,87 @@ TELEGRAM FILE API:
 - Download: https://api.telegram.org/file/bot{token}/{file_path}
 ================================================================================
 """
+import os
+import httpx
+from fastapi import APIRouter, Request, BackgroundTasks
+from fastapi.responses import JSONResponse
+from app.config import BOT_TOKEN, TELEGRAM_API_URL
+from app.services.user_service import user_service
+from app.services.media_service import media_service
+from app.services.receipt_service import receipt_service
+
+router = APIRouter()
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+async def send_telegram_message(chat_id: int, text: str):
+    try:
+        url = f"{TELEGRAM_API_URL}/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+
+    except Exception as e:
+        print(f"Error sending Telegram message: {str(e)}")
+
+@router.post("/")
+async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
+    try:
+        body = await request.json()
+
+        message = body.get("message")
+        if not message:
+            return JSONResponse(status_code=200, content={"status": "ignored"})
+
+        from_data = message.get("from", {})
+        user_id = from_data.get("id")
+        username = from_data.get("username")
+        display_name = from_data.get("first_name", "")
+        message_id = message.get("message_id")
+        chat_id = message.get("chat", {}).get("id")
+        text = message.get("text")
+        photos = message.get("photo")
+        document = message.get("document")
+
+        user = await user_service.get_or_create_user(
+            user_id=user_id,
+            username=username,
+            display_name=display_name,
+            source="telegram"
+        )
+        if photos:
+            highest = photos[-1]
+            file_id = highest.get("file_id")
+
+            media_info = await media_service.download_telegram_media(
+                file_id=file_id,
+                bot_token=BOT_TOKEN
+            )
+
+            receipt = await receipt_service.create_receipt(
+                user_id=user_id,
+                file_path=media_info["file_path"],
+                file_name=media_info["file_name"],
+                mime_type=media_info["mime_type"],
+                file_size=media_info["file_size"]
+            )
+
+            await send_telegram_message(chat_id, "Foto struk diterima. Sedang diproses.")
+
+            return JSONResponse(status_code=200, content={"status": "photo_processed"})
+        if text:
+            await send_telegram_message(chat_id, "Pesan diterima. Sedang diproses.")
+            return JSONResponse(status_code=200, content={"status": "text_processed"})
+
+        return JSONResponse(status_code=200, content={"status": "ignored"})
+
+    except Exception as e:
+        print(f"Telegram Webhook Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+        return JSONResponse(
+            status_code=200,
+            content={"status": "error_handled", "error": str(e)}
+        )
