@@ -1,13 +1,3 @@
-"""
-================================================================================
-FILE: app/models/schemas.py
-DESKRIPSI: Pydantic Schemas untuk validasi data
-ASSIGNEE: @Backend
-PRIORITY: MEDIUM
-SPRINT: 1
-================================================================================
-"""
-
 from datetime import datetime
 from typing import Optional, Dict, Any
 

@@ -1,13 +1,3 @@
-"""
-================================================================================
-FILE: app/models/enums.py
-DESKRIPSI: Enum definitions (alternatif jika ingin pisah dari schemas)
-ASSIGNEE: @Backend
-PRIORITY: LOW
-SPRINT: 1
-================================================================================
-"""
-
 from enum import Enum
 
 
