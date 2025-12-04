@@ -1,87 +1,168 @@
-"""
-================================================================================
-FILE: worker/ocr/tesseract.py
-DESKRIPSI: Tesseract OCR Wrapper
-ASSIGNEE: @ML/Vision
-PRIORITY: HIGH
-SPRINT: 2
-================================================================================
+import pytesseract
+import cv2
+import numpy as np
+from typing import Dict, Optional, Tuple
+import logging
+import os
 
-DEPENDENCIES:
-- pytesseract
-- Tesseract OCR (system package)
+logger = logging.getLogger(__name__)
 
-INSTALL TESSERACT:
-- Ubuntu/Debian: apt-get install tesseract-ocr tesseract-ocr-ind
-- Windows: Download installer dari https://github.com/UB-Mannheim/tesseract/wiki
-- MacOS: brew install tesseract
+class TesseractOCR:
+    """
+    Tesseract OCR Engine
+    
+    Features:
+    - Multi-language support (Indonesian + English)
+    - PSM (Page Segmentation Mode) optimization
+    - OEM (OCR Engine Mode) selection
+    - Confidence scoring
+    """
+    
+    def __init__(
+        self,
+        lang: str = "ind+eng",
+        psm: int = 6,
+        oem: int = 3,
+        tesseract_cmd: Optional[str] = None
+    ):
+        """
+        Initialize Tesseract OCR
+        
+        Args:
+            lang: Language(s) untuk OCR. Format: "ind+eng"
+                  - ind: Indonesian
+                  - eng: English
+            psm: Page Segmentation Mode
+                 - 6: Uniform block of text (default, best untuk struk)
+                 - 3: Fully automatic
+                 - 11: Sparse text (untuk text acak)
+            oem: OCR Engine Mode
+                 - 3: Default (LSTM + Legacy) - RECOMMENDED
+                 - 1: LSTM only (faster, modern)
+                 - 0: Legacy only (slower, sometimes more accurate)
+            tesseract_cmd: Path ke tesseract binary (optional)
+        """
+        self.lang = lang
+        self.psm = psm
+        self.oem = oem
+        
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+            logger.info(f"Set tesseract command to: {tesseract_cmd}")
+            
+        # Verify Tesseract installed
+        self._verify_installation()
+        
+        logger.info(f"TesseractOCR initialized: lang={lang}, psm={psm}, oem={oem}")
 
-INSTALL PYTHON PACKAGE:
-pip install pytesseract
+    def _verify_installation(self):
+        """
+        Verify Tesseract terinstall dan accessible
+        
+        Raises:
+            RuntimeError: Jika Tesseract tidak ditemukan
+        """
+        try:
+            version = pytesseract.get_tesseract_version()
+            logger.info(f"Tesseract version: {version}")
+        except Exception as e:
+            logger.error("Tesseract tidak ditemukan atau tidak terinstall dengan benar.")
+            raise RuntimeError("Tesseract tidak ditemukan atau tidak terinstall dengan benar.") from e
+        
+    def extract_text(self, img: np.ndarray) -> Tuple[str, Dict]:
+        """
+        Extract text dari image
+        
+        Args:
+            img: Input image (grayscale atau RGB)
+            
+        Returns:
+            Tuple[str, Dict]:
+                - str: Extracted text
+                - Dict: Metadata (confidence, word_count, etc)
+        """
+        logger.info("Starting OCR extraction...")
 
-BAHASA YANG DIBUTUHKAN:
-- eng (English) - default
-- ind (Indonesian) - untuk struk Indonesia
+        # Build Tesseract config
+        config = self._build_config()
 
-TODO [OCR-001]: Setup Tesseract Path
-Untuk Windows, perlu set path ke tesseract.exe:
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+        # Run OCR
+        try:
+            # Ekstrak text
+            text = pytesseract.image_to_string(img, lang=self.lang, config=config)
+            
+            # Ekstrak data detail
+            data = pytesseract.image_to_data(img, lang=self.lang, config=config, output_type=pytesseract.Output.DICT)
+            
+            # calkulasi metadata
+            metadata = self._calculate_metadata(text, data)
 
-Untuk Linux/Docker, biasanya sudah di PATH.
+            logger.info("OCR extraction completed.")
+            return text, metadata
+        except Exception as e:
+            logger.error("Error during OCR extraction.")
+            raise RuntimeError("Error during OCR extraction.") from e
+        
+    def _build_config(self) -> str:
+        """
+        Build Tesseract configuration string
+        
+        Returns:
+            Config string untuk pytesseract
+        """
+        config_parts = []
+        
+        # PSM (Page Segmentation Mode)
+        config_parts.append(f"--psm {self.psm}")
+        
+        # OEM (OCR Engine Mode)
+        config_parts.append(f"--oem {self.oem}")
+        
+        # Additional optimizations untuk struk
+        # - Preserve interword spaces
+        # - Allow digits dan symbols
+        config_parts.extend([
+            "-c preserve_interword_spaces=1",
+        ])
+        
+        return " ".join(config_parts)
 
-TODO [OCR-002]: extract_text(image_path, lang="ind+eng") -> dict
-Fungsi utama untuk extract text dari image.
-
-Parameter:
-- image_path: str - path ke preprocessed image
-- lang: str - bahasa Tesseract (default: "ind+eng" untuk Indonesia + English)
-
-Return:
-{
-    "raw_text": str,        # Full extracted text
-    "confidence": float,    # Average confidence (0.0 - 1.0)
-    "word_count": int,      # Jumlah kata terdeteksi
-    "meta": {
-        "lang": str,
-        "processing_time_ms": int
-    }
-}
-
-Langkah:
-1. Load image dengan PIL.Image.open(image_path)
-2. Configure Tesseract:
-   - --oem 3 (LSTM neural net)
-   - --psm 6 (assume uniform block of text)
-3. Extract text: pytesseract.image_to_string(img, lang=lang, config=config)
-4. Get detailed data: pytesseract.image_to_data(..., output_type=pytesseract.Output.DICT)
-5. Calculate average confidence dari data['conf'] (filter nilai > 0)
-6. Return hasil
-
-TODO [OCR-003]: extract_text_with_boxes(image_path) -> dict
-Extract text dengan koordinat bounding box.
-Berguna jika ingin highlight area di image.
-
-Return tambahan:
-{
-    "boxes": [
-        {"text": "TOTAL", "x": 10, "y": 100, "w": 50, "h": 20, "conf": 95},
-        ...
-    ]
-}
-
-TODO [OCR-004]: PSM (Page Segmentation Mode) Options
-Tesseract PSM options yang relevan:
-- 3: Fully automatic page segmentation (default)
-- 4: Assume single column of text
-- 6: Assume uniform block of text (RECOMMENDED untuk struk)
-- 11: Sparse text, find as much text as possible
-- 13: Raw line, treat image as single text line
-
-Untuk struk, PSM 6 biasanya terbaik.
-
-CATATAN:
-- OCR quality sangat bergantung pada preprocessing
-- Thermal receipt (struk kasir) biasanya low contrast, perlu threshold yang baik
-- Test dengan sample struk real dari berbagai toko
-================================================================================
-"""
+    def _calculate_metadata(self, text: str, data: Dict) -> Dict:
+        """
+        Calculate OCR metadata dari hasil
+        
+        Args:
+            text: Extracted text
+            data: Detailed OCR data dari image_to_data
+            
+        Returns:
+            Dict dengan metadata:
+                - confidence: Average confidence (0-100)
+                - word_count: Jumlah words terdeteksi
+                - char_count: Jumlah characters
+                - line_count: Jumlah lines
+        """
+        # Filter out empty confidences (-1)
+        confidences = [float(conf) for conf in data['conf'] if int(conf) != -1]
+        
+        # Calculate average confidence
+        avg_confidence = np.mean(confidences) if confidences else 0.0
+        
+        # Count words (non-empty text entries)
+        word_count = sum(1 for txt in data['text'] if txt.strip())
+        
+        # Count lines
+        line_count = len(text.split('\n'))
+        
+        metadata = {
+            "confidence": avg_confidence,
+            "word_count": word_count,
+            "char_count": len(text),
+            "line_count": line_count,
+            "tesseract_version": str(pytesseract.get_tesseract_version()),
+            "language": self.lang,
+            "psm": self.psm,
+            "oem": self.oem
+        }
+        
+        return metadata
