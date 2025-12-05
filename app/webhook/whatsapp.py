@@ -109,8 +109,9 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                         display_name = contacts[0].get("profile", {}).get("name", "WhatsApp User")
 
                     user_id = parse_phone_number(from_phone)
+                    message_id = message.get("id")
 
-                    await user_service.get_or_create_user(
+                    user = await user_service.get_or_create_user(
                         user_id=int(user_id),
                         username=None,
                         display_name=display_name,
@@ -121,6 +122,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                         text_body = message.get("text", {}).get("body")
 
                         if text_body:
+                            print(f"WhatsApp text - User: {user.id}, Message: {message_id}, Body: {text_body[:50]}")
                             await send_whatsapp_message(
                                 from_phone,
                                 "Pesan diterima dan sedang diproses.",
@@ -134,13 +136,15 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                         if media_id:
                             media_info = await download_whatsapp_media(media_id, client)
 
-                            await receipt_service.create_receipt(
-                                user_id=int(user_id),
+                            receipt = await receipt_service.create_receipt(
+                                user_id=user.id,
                                 file_path=media_info["file_path"],
                                 file_name=media_info["file_name"],
                                 mime_type=media_info["mime_type"],
                                 file_size=media_info["file_size"]
                             )
+                            
+                            print(f"WhatsApp image - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
 
                             await send_whatsapp_message(
                                 from_phone,
@@ -178,23 +182,27 @@ async def whatsapp_twilio_webhook(request: Request, background_tasks: Background
         phone_number = phone_raw.replace("whatsapp:", "")
         user_id = parse_phone_number(phone_number)
 
-        await user_service.get_or_create_user(
+        user = await user_service.get_or_create_user(
             user_id=int(user_id),
             username=None,
             display_name=profile_name,
             source="whatsapp"
         )
+        
+        print(f"Twilio webhook - User: {user.id}, Body: {body[:50] if body else 'No text'}")
 
         if media_url:
             media_info = await media_service.download_twilio_media(media_url)
 
-            await receipt_service.create_receipt(
-                user_id=int(user_id),
+            receipt = await receipt_service.create_receipt(
+                user_id=user.id,
                 file_path=media_info["file_path"],
                 file_name=media_info["file_name"],
                 mime_type=media_info["mime_type"],
                 file_size=media_info["file_size"]
             )
+            
+            print(f"Twilio media - User: {user.id}, Receipt: {receipt.id}")
 
         return PlainTextResponse(content="OK", status_code=200)
 
