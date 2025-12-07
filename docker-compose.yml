@@ -29,6 +29,8 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DATABASE_URL=postgresql://${DB_USER:-keuangan_user}:${DB_PASSWORD:-password_keuangan}@db:5432/${DB_NAME:-keuangan_bot_db}
       - WORKER_MODE=test
+    ports:
+      - "8000:8000"
     volumes:
       - ./upload:/app/upload
       - ./exports:/app/exports
