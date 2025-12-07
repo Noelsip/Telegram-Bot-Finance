@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from app.config import BOT_TOKEN, TELEGRAM_API_URL
 from app.services import user_service, media_service, receipt_service
 from app.db import prisma 
+from worker import process_text_message
 
 router = APIRouter(tags=["Telegram"])
 
@@ -18,6 +19,54 @@ async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClie
     except Exception as e:
         print(f"Error sending Telegram message: {str(e)}")
 
+async def handle_text_message(
+    user_id: int,
+    chat_id: int,
+    text: str,
+    client: httpx.AsyncClient,
+):
+    try:
+        # Panggil worker NLP untuk memproses teks
+        result = await process_text_message(
+            user_id=user_id,
+            text=text,
+            source="telegram",
+        )
+
+        if not result:
+            await send_telegram_message(
+                chat_id,
+                "Maaf, aku tidak bisa memahami pesan ini sebagai transaksi.",
+                client,
+            )
+            return
+
+        amount = result.get("amount")
+        category = result.get("category")
+        direction = result.get("direction")  # kalau tidak ada di result, boleh dihapus
+
+        # Susun pesan ringkasan hasil
+        lines = ["✅ Transaksi berhasil dicatat."]
+        if amount is not None:
+            lines.append(f"• Jumlah: Rp {amount:,.0f}")
+        if category:
+            lines.append(f"• Kategori: {category}")
+        if direction:
+            lines.append(f"• Tipe: {direction}")
+
+        await send_telegram_message(
+            chat_id,
+            "\n".join(lines),
+            client,
+        )
+
+    except Exception as e:
+        print(f"Error in handle_text_message: {e}")
+        await send_telegram_message(
+            chat_id,
+            "Terjadi error saat memproses transaksi. Coba lagi nanti.",
+            client,
+        )
 
 @router.post("/tg_webhook")
 async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -92,9 +141,22 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             print(f"Photo processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
 
             return JSONResponse(status_code=200, content={"status": "photo_processed"})
+        
         if text:
             print(f"Text message - User: {user.id}, Message: {message_id}, Content: {text[:50]}")
+
+            # Balasan cepat supaya Telegram tidak timeout
             await send_telegram_message(chat_id, "Pesan diterima. Sedang diproses.", client)
+
+            # Proses teks di background, kirim hasil setelah selesai
+            background_tasks.add_task(
+                handle_text_message,
+                user.id,
+                chat_id,
+                text,
+                client,
+            )
+
             return JSONResponse(status_code=200, content={"status": "text_processed"})
 
         return JSONResponse(status_code=200, content={"status": "ignored"})
