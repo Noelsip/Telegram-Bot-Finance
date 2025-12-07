@@ -91,7 +91,7 @@ async def handle_text_message(
         if intent == "help":
             await send_telegram_message(chat_id, HELP_TEXT, client)
             return
-
+ 
         # 2) History harian
         if intent == "history" and period == "today":
             txs, label = await get_transactions_for_period(
