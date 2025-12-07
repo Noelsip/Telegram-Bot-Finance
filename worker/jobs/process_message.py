@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, Dict, Any
 
-from app.enums import InputType, TransactionIntent
+from app.models import InputType, IntentType
 from worker.llm.prompts import build_prompt
 from worker.llm.gemini_client import call_gemini
 from worker.llm.parser import parse_llm_response
@@ -136,13 +136,13 @@ class ProcessMessageJob:
         raw_intent = parsed_output.get("intent")
 
         try:
-            intent = TransactionIntent(raw_intent)
+            intent = IntentType(raw_intent)
         except Exception:
         # intent tidak dikenal
             return True
 
         # Dua intent valid → PEMASUKKAN atau PENGELUARAN
-        if intent not in [TransactionIntent.PEMASUKKAN, TransactionIntent.PENGELUARAN]:
+        if intent not in [IntentType.PEMASUKKAN, IntentType.PENGELUARAN]:
             return True
         
         return False
