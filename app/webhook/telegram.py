@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from app.config import BOT_TOKEN, TELEGRAM_API_URL
 from app.services import user_service, media_service, receipt_service
 from app.db import prisma 
-from worker import process_text_message, process_message_background
+from worker import process_text_message, process_image_message
 from app.services import (
     user_service,
     media_service,
@@ -16,7 +16,7 @@ from app.services import (
 )
 
 HELP_TEXT = (
-    "Selamat datang di Slip Ku 👋\n\n"
+    "Selamat datang di Slip Ku \n\n"
     "Aku bisa membantu kamu:\n"
     "• Mencatat pemasukan dan pengeluaran dari chat biasa\n"
     "• Melihat ringkasan transaksi harian & mingguan\n"
@@ -240,6 +240,56 @@ async def send_telegram_document(
     except Exception as e:
         print(f"Error sending Telegram document: {str(e)}")
 
+async def process_receipt_background(
+    user_id: int,
+    chat_id: int,
+    receipt_id: int,
+    file_path: str,
+    client: httpx.AsyncClient,
+):
+    """Proses struk di worker lalu kirim ringkasan transaksi ke Telegram."""
+    try:
+        result = await process_image_message(
+            user_id=user_id,
+            receipt_id=receipt_id,
+            file_path=file_path,
+            source="telegram",
+        )
+
+        if not result:
+            await send_telegram_message(
+                chat_id,
+                "Struk sudah diproses, tapi aku belum bisa mengenali transaksinya. Coba foto yang lebih jelas ya.",
+                client,
+            )
+            return
+
+        amount = result.get("amount")
+        category = result.get("category")
+        direction = result.get("direction")
+
+        lines = ["✅ Transaksi dari struk berhasil dicatat."]
+        if amount is not None:
+            lines.append(f"• Jumlah: Rp {amount:,.0f}")
+        if category:
+            lines.append(f"• Kategori: {category}")
+        if direction:
+            lines.append(f"• Tipe: {direction}")
+
+        await send_telegram_message(
+            chat_id,
+            "\n".join(lines),
+            client,
+        )
+
+    except Exception as e:
+        print(f"Error in process_receipt_background: {e}")
+        await send_telegram_message(
+            chat_id,
+            "Terjadi error saat memproses struk. Coba lagi nanti.",
+            client,
+        )
+
 @router.post("/tg_webhook")
 async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
@@ -291,15 +341,14 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             await send_telegram_message(chat_id, "Dokumen diterima. Sedang diproses.", client)
             print(f"Document processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
 
-            # Proses OCR + transaksi di background
+            # Proses OCR + transaksi di background lalu kirim ringkasan ke user
             background_tasks.add_task(
-                process_message_background,
-                user.id,              
-                "image",              
-                None,                 
-                receipt.id,           
-                media_info["file_path"],  
-                "telegram",           
+                process_receipt_background,
+                user.id,
+                chat_id,
+                receipt.id,
+                media_info["file_path"],
+                client,
             )
             
             return JSONResponse(status_code=200, content={"status": "document_processed"})
@@ -326,15 +375,14 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             await send_telegram_message(chat_id, "Foto struk diterima. Sedang diproses.", client)
             print(f"Photo processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
 
-            # Proses OCR + transaksi di background
+            # Proses OCR + transaksi di background lalu kirim ringkasan ke user
             background_tasks.add_task(
-                process_message_background,
-                user.id,                  
-                "image",                  
-                None,                     
-                receipt.id,               
-                media_info["file_path"],  
-                "telegram",               
+                process_receipt_background,
+                user.id,
+                chat_id,
+                receipt.id,
+                media_info["file_path"],
+                client,
             )
 
             return JSONResponse(status_code=200, content={"status": "photo_processed"})
