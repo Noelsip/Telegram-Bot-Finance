@@ -46,6 +46,37 @@ async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClie
     except Exception as e:
         print(f"Error sending Telegram message: {str(e)}")
 
+def detect_special_intent(text: str):
+    s = text.strip().lower()
+    if not s:
+        return None, None
+    s = s.lstrip("/")
+
+    if s.startswith("start") or "help" in s or "bantuan" in s or "cara pakai" in s or "cara penggunaan" in s:
+        return "help", None
+
+    period = None
+    if "hari ini" in s or "harian" in s or "today" in s:
+        period = "today"
+    elif "minggu" in s or "mingguan" in s or "7 hari" in s or "seminggu" in s:
+        period = "week"
+    elif "bulan" in s or "bulanan" in s or "30 hari" in s or "sebulan" in s:
+        period = "month"
+    elif "tahun" in s or "tahunan" in s or "365 hari" in s or "setahun" in s:
+        period = "year"
+
+    if "history" in s or "histori" in s or "riwayat" in s:
+        if period is None:
+            period = "week"
+        return "history", period
+
+    if "export" in s or "ekspor" in s or "laporan" in s or "report" in s or "excel" in s:
+        if period is None:
+            period = "month"
+        return "export", period
+
+    return None, None
+
 async def handle_text_message(
     user_id: int,
     chat_id: int,
@@ -54,15 +85,15 @@ async def handle_text_message(
 ):
     try:
         clean = text.strip()
-        lower = clean.lower()
+        intent, period = detect_special_intent(clean)
 
         # 1) Command help / start
-        if lower.startswith("/start") or lower.startswith("/help") or lower.startswith("start") or lower.startswith("help"):
+        if intent == "help":
             await send_telegram_message(chat_id, HELP_TEXT, client)
             return
 
         # 2) History harian
-        if lower.startswith("/history_harian") or lower.startswith("histori_harian") or lower.startswith("histori harian"):
+        if intent == "history" and period == "today":
             txs, label = await get_transactions_for_period(
                 prisma=prisma,
                 user_id=user_id,
@@ -73,7 +104,7 @@ async def handle_text_message(
             return
 
         # 3) History mingguan
-        if lower.startswith("/history_mingguan") or lower.startswith("histori_mingguan") or lower.startswith("histori mingguan"):
+        if intent == "history" and period == "week":
             txs, label = await get_transactions_for_period(
                 prisma=prisma,
                 user_id=user_id,
@@ -84,7 +115,7 @@ async def handle_text_message(
             return
 
         # 4) Export Excel mingguan
-        if lower.startswith("/export_mingguan") or lower.startswith("export_mingguan") or lower.startswith("export mingguan"):
+        if intent == "export" and period == "week":
             file_path, file_name = await create_excel_report(
                 prisma=prisma,
                 user_id=user_id,
@@ -107,7 +138,7 @@ async def handle_text_message(
             return
 
         # 5) Export Excel bulanan
-        if lower.startswith("/export_bulanan") or lower.startswith("export_bulanan") or lower.startswith("export bulanan"):
+        if intent == "export" and period == "month":
             file_path, file_name = await create_excel_report(
                 prisma=prisma,
                 user_id=user_id,
@@ -130,7 +161,7 @@ async def handle_text_message(
             return
 
         # 6) Export Excel tahunan
-        if lower.startswith("/export_tahunan") or lower.startswith("export_tahunan") or lower.startswith("export tahunan"):
+        if intent == "export" and period == "year":
             file_path, file_name = await create_excel_report(
                 prisma=prisma,
                 user_id=user_id,
@@ -311,10 +342,19 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
         if text:
             print(f"Text message - User: {user.id}, Message: {message_id}, Content: {text[:50]}")
 
-            # Balasan cepat supaya Telegram tidak timeout
+            intent, period = detect_special_intent(text)
+            if intent in ("help", "history", "export"):
+                await handle_text_message(
+                    user.id,
+                    chat_id,
+                    text,
+                    client,
+                )
+
+                return JSONResponse(status_code=200, content={"status": "command_processed"})
+
             await send_telegram_message(chat_id, "Pesan diterima. Sedang diproses.", client)
 
-            # Proses teks di background, kirim hasil setelah selesai
             background_tasks.add_task(
                 handle_text_message,
                 user.id,
