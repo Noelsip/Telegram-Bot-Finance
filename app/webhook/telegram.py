@@ -36,6 +36,16 @@ HELP_TEXT = (
 
 router = APIRouter(tags=["Telegram"])
 
+async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClient):
+    try:
+        url = f"{TELEGRAM_API_URL}/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text}
+
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Error sending Telegram message: {str(e)}")
+
 async def handle_text_message(
     user_id: int,
     chat_id: int,
@@ -53,29 +63,29 @@ async def handle_text_message(
 
         # 2) History harian
         if lower.startswith("/history_harian") or lower.startswith("histori_harian") or lower.startswith("histori harian"):
-            txs, label = await transaction_service.get_transactions_for_period(
+            txs, label = await get_transactions_for_period(
                 prisma=prisma,
                 user_id=user_id,
                 period="today",
             )
-            summary = transaction_service.build_history_summary(label, txs)
+            summary = build_history_summary(label, txs)
             await send_telegram_message(chat_id, summary, client)
             return
 
         # 3) History mingguan
         if lower.startswith("/history_mingguan") or lower.startswith("histori_mingguan") or lower.startswith("histori mingguan"):
-            txs, label = await transaction_service.get_transactions_for_period(
+            txs, label = await get_transactions_for_period(
                 prisma=prisma,
                 user_id=user_id,
                 period="week",
             )
-            summary = transaction_service.build_history_summary(label, txs)
+            summary = build_history_summary(label, txs)
             await send_telegram_message(chat_id, summary, client)
             return
 
         # 4) Export Excel mingguan
         if lower.startswith("/export_mingguan") or lower.startswith("export_mingguan") or lower.startswith("export mingguan"):
-            file_path, file_name = await transaction_service.create_excel_report(
+            file_path, file_name = await create_excel_report(
                 prisma=prisma,
                 user_id=user_id,
                 period="week",
@@ -98,7 +108,7 @@ async def handle_text_message(
 
         # 5) Export Excel bulanan
         if lower.startswith("/export_bulanan") or lower.startswith("export_bulanan") or lower.startswith("export bulanan"):
-            file_path, file_name = await transaction_service.create_excel_report(
+            file_path, file_name = await create_excel_report(
                 prisma=prisma,
                 user_id=user_id,
                 period="month",
@@ -121,7 +131,7 @@ async def handle_text_message(
 
         # 6) Export Excel tahunan
         if lower.startswith("/export_tahunan") or lower.startswith("export_tahunan") or lower.startswith("export tahunan"):
-            file_path, file_name = await transaction_service.create_excel_report(
+            file_path, file_name = await create_excel_report(
                 prisma=prisma,
                 user_id=user_id,
                 period="year",
