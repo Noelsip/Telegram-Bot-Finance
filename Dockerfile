@@ -47,4 +47,4 @@ ENV PYTHONPATH=/app
 # Create directories
 RUN mkdir -p upload/receipts upload/temp exports
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

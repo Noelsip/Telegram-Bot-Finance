@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from app.config import WHATSAPP_ACCESS_TOKEN
 
 import aiofiles
 import httpx
@@ -101,6 +102,46 @@ async def download_telegram_media(
     }
     
     _logger.info(f"Downloaded: {result}")
+    return result
+
+
+async def download_twilio_media(media_url: str, user_id: Optional[str] = None) -> dict:
+    """Download file dari Twilio (WhatsApp via Twilio)."""
+    user_id_value = str(user_id or "anon")
+    now = datetime.utcnow()
+    timestamp = now.strftime("%Y%m%d%H%M%S")
+
+    timeout = httpx.Timeout(10.0, read=30.0)
+
+    _logger.info(f"Downloading Twilio media: {media_url}")
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.get(media_url)
+        response.raise_for_status()
+
+        # Coba deteksi MIME dari header
+        content_type = response.headers.get("Content-Type", "application/octet-stream")
+        ext = mimetypes.guess_extension(content_type) or ".bin"
+
+        unique_id = uuid.uuid4().hex[:8]
+        generated_name = f"{timestamp}_{user_id_value}_{unique_id}{ext}"
+        destination = UPLOAD_DIR / generated_name
+
+        async with aiofiles.open(destination, "wb") as out_file:
+            await out_file.write(response.content)
+
+    detected_mime = _determine_mime_type(destination)
+    mime_type = detected_mime or content_type
+    file_size = destination.stat().st_size
+
+    result = {
+        "file_path": str(destination.as_posix()),
+        "file_name": generated_name,
+        "mime_type": mime_type,
+        "file_size": file_size,
+    }
+
+    _logger.info(f"Downloaded Twilio media: {result}")
     return result
 
 

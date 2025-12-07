@@ -7,6 +7,7 @@ from app.config import (
     WHATSAPP_PHONE_NUMBER_ID,
     WHATSAPP_API_URL,
 )
+from app.db import prisma
 from app.services import user_service, media_service, receipt_service
 from app.utils.helpers import parse_phone_number
 
@@ -35,36 +36,6 @@ async def send_whatsapp_message(
     except Exception as e:
         print(f"Error sending WhatsApp message: {str(e)}")
         return None
-
-
-async def download_whatsapp_media(
-    media_id: str, client: httpx.AsyncClient
-) -> dict:
-    try:
-        url = f"{WHATSAPP_API_URL}/{media_id}"
-        headers = {"Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}"}
-
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        media_data = response.json()
-
-        media_url = media_data.get("url")
-        mime_type = media_data.get("mime_type")
-
-        if not media_url:
-            raise Exception("Media URL missing")
-
-        media_response = await client.get(media_url, headers=headers)
-        media_response.raise_for_status()
-
-        return await media_service.save_whatsapp_media(
-            media_response.content,
-            mime_type=mime_type,
-            media_id=media_id,
-        )
-    except Exception as e:
-        print(f"Error downloading WhatsApp media: {str(e)}")
-        raise
 
 
 @router.get("/")
@@ -112,6 +83,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                     message_id = message.get("id")
 
                     user = await user_service.get_or_create_user(
+                        prisma=prisma,
                         user_id=int(user_id),
                         username=None,
                         display_name=display_name,
@@ -134,14 +106,19 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                         media_id = image_data.get("id")
 
                         if media_id:
-                            media_info = await download_whatsapp_media(media_id, client)
+                            media_info = await media_service.download_whatsapp_media(
+                                media_id=media_id,
+                                access_token=WHATSAPP_ACCESS_TOKEN,
+                                user_id=str(user.id),
+                            )
 
                             receipt = await receipt_service.create_receipt(
+                                prisma=prisma,
                                 user_id=user.id,
                                 file_path=media_info["file_path"],
                                 file_name=media_info["file_name"],
                                 mime_type=media_info["mime_type"],
-                                file_size=media_info["file_size"]
+                                file_size=media_info["file_size"],
                             )
                             
                             print(f"WhatsApp image - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
@@ -183,6 +160,7 @@ async def whatsapp_twilio_webhook(request: Request, background_tasks: Background
         user_id = parse_phone_number(phone_number)
 
         user = await user_service.get_or_create_user(
+            prisma=prisma,
             user_id=int(user_id),
             username=None,
             display_name=profile_name,
@@ -195,11 +173,12 @@ async def whatsapp_twilio_webhook(request: Request, background_tasks: Background
             media_info = await media_service.download_twilio_media(media_url)
 
             receipt = await receipt_service.create_receipt(
+                prisma=prisma,
                 user_id=user.id,
                 file_path=media_info["file_path"],
                 file_name=media_info["file_name"],
                 mime_type=media_info["mime_type"],
-                file_size=media_info["file_size"]
+                file_size=media_info["file_size"],
             )
             
             print(f"Twilio media - User: {user.id}, Receipt: {receipt.id}")

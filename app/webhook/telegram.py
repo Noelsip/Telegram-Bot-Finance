@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
 from app.config import BOT_TOKEN, TELEGRAM_API_URL
 from app.services import user_service, media_service, receipt_service
+from app.db import prisma 
 
 router = APIRouter()
 
@@ -40,6 +41,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
         document = message.get("document")
 
         user = await user_service.get_or_create_user(
+            prisma=prisma,
             user_id=user_id,
             username=username,
             display_name=display_name,
@@ -56,6 +58,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             )
             
             receipt = await receipt_service.create_receipt(
+                prisma=prisma,
                 user_id=user.id,
                 file_path=media_info["file_path"],
                 file_name=media_info["file_name"],
