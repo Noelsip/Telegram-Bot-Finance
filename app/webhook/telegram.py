@@ -6,7 +6,7 @@ from app.config import BOT_TOKEN, TELEGRAM_API_URL
 from app.services import user_service, media_service, receipt_service
 from app.db import prisma 
 
-router = APIRouter(tags=["Telegram"], trailing_slash=True)
+router = APIRouter(tags=["Telegram"])
 
 async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClient):
     try:
