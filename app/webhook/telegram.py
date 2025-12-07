@@ -5,9 +5,15 @@ from fastapi.responses import JSONResponse
 from app.config import BOT_TOKEN, TELEGRAM_API_URL
 from app.services import user_service, media_service, receipt_service
 from app.db import prisma 
-from worker import process_text_message
-from app import services
-from app.services import transaction_service
+from worker import process_text_message, process_message_background
+from app.services import (
+    user_service,
+    media_service,
+    receipt_service,
+    get_transactions_for_period,
+    build_history_summary,
+    create_excel_report,
+)
 
 HELP_TEXT = (
     "Selamat datang di Slip Ku 👋\n\n"
@@ -177,55 +183,6 @@ async def handle_text_message(
             client,
         )
 
-async def handle_text_message(
-    user_id: int,
-    chat_id: int,
-    text: str,
-    client: httpx.AsyncClient,
-):
-    try:
-        # Panggil worker NLP untuk memproses teks
-        result = await process_text_message(
-            user_id=user_id,
-            text=text,
-            source="telegram",
-        )
-
-        if not result:
-            await send_telegram_message(
-                chat_id,
-                "Maaf, aku tidak bisa memahami pesan ini sebagai transaksi.",
-                client,
-            )
-            return
-
-        amount = result.get("amount")
-        category = result.get("category")
-        direction = result.get("direction")  # kalau tidak ada di result, boleh dihapus
-
-        # Susun pesan ringkasan hasil
-        lines = ["✅ Transaksi berhasil dicatat."]
-        if amount is not None:
-            lines.append(f"• Jumlah: Rp {amount:,.0f}")
-        if category:
-            lines.append(f"• Kategori: {category}")
-        if direction:
-            lines.append(f"• Tipe: {direction}")
-
-        await send_telegram_message(
-            chat_id,
-            "\n".join(lines),
-            client,
-        )
-
-    except Exception as e:
-        print(f"Error in handle_text_message: {e}")
-        await send_telegram_message(
-            chat_id,
-            "Terjadi error saat memproses transaksi. Coba lagi nanti.",
-            client,
-        )
-
 async def send_telegram_document(
     chat_id: int,
     file_path: str,
@@ -289,8 +246,20 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
                 file_size=media_info["file_size"]
             )
             
+            # Balasan cepat
             await send_telegram_message(chat_id, "Dokumen diterima. Sedang diproses.", client)
             print(f"Document processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
+
+            # Proses OCR + transaksi di background
+            background_tasks.add_task(
+                process_message_background,
+                user.id,              
+                "image",              
+                None,                 
+                receipt.id,           
+                media_info["file_path"],  
+                "telegram",           
+            )
             
             return JSONResponse(status_code=200, content={"status": "document_processed"})
         
@@ -304,6 +273,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             )
 
             receipt = await receipt_service.create_receipt(
+                prisma=prisma,
                 user_id=user.id,
                 file_path=media_info["file_path"],
                 file_name=media_info["file_name"],
@@ -311,8 +281,20 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
                 file_size=media_info["file_size"]
             )
 
+            # Balasan cepat
             await send_telegram_message(chat_id, "Foto struk diterima. Sedang diproses.", client)
             print(f"Photo processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
+
+            # Proses OCR + transaksi di background
+            background_tasks.add_task(
+                process_message_background,
+                user.id,                  
+                "image",                  
+                None,                     
+                receipt.id,               
+                media_info["file_path"],  
+                "telegram",               
+            )
 
             return JSONResponse(status_code=200, content={"status": "photo_processed"})
         
