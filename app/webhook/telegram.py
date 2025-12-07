@@ -19,7 +19,7 @@ async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClie
         print(f"Error sending Telegram message: {str(e)}")
 
 
-@router.post("/")
+@router.post("")
 async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()
