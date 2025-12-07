@@ -65,7 +65,7 @@ app = FastAPI(
 async def health_check():
     return {"status": "ok"}
 
-app.include_router(telegram_router, prefix="/webhook/telegram", tags=["Telegram"])
+app.include_router(telegram_router)  
 app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
 
 @app.exception_handler(HTTPException)
@@ -97,8 +97,6 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": True,
             "status_code": 500,
             "message": "Internal Server Error",
-            # TODO: di production, detail error sebaiknya tidak dikirim ke client
-            "detail": str(exc),
             "path": request.url.path,
             "timestamp": datetime.now().isoformat(),
         },
