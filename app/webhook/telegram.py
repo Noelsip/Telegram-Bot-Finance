@@ -6,18 +6,176 @@ from app.config import BOT_TOKEN, TELEGRAM_API_URL
 from app.services import user_service, media_service, receipt_service
 from app.db import prisma 
 from worker import process_text_message
+from app import services
+from app.services import transaction_service
+
+HELP_TEXT = (
+    "Selamat datang di Slip Ku 👋\n\n"
+    "Aku bisa membantu kamu:\n"
+    "• Mencatat pemasukan dan pengeluaran dari chat biasa\n"
+    "• Melihat ringkasan transaksi harian & mingguan\n"
+    "• Mengekspor riwayat transaksi mingguan, bulanan, dan tahunan ke Excel\n\n"
+    "Contoh pesan transaksi:\n"
+    "• makan siang 25rb\n"
+    "• gaji bulan ini masuk 5jt\n"
+    "• transfer ke teman 100rb\n\n"
+    "Perintah:\n"
+    "• /start atau /help – lihat pesan ini\n"
+    "• /history_harian – ringkasan transaksi hari ini\n"
+    "• /history_mingguan – ringkasan 7 hari terakhir\n"
+    "• /export_mingguan – kirim file Excel 7 hari terakhir\n"
+    "• /export_bulanan – kirim file Excel 30 hari terakhir\n"
+    "• /export_tahunan – kirim file Excel 365 hari terakhir\n"
+)
 
 router = APIRouter(tags=["Telegram"])
 
-async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClient):
+async def handle_text_message(
+    user_id: int,
+    chat_id: int,
+    text: str,
+    client: httpx.AsyncClient,
+):
     try:
-        url = f"{TELEGRAM_API_URL}/bot{BOT_TOKEN}/sendMessage"
-        payload = {"chat_id": chat_id, "text": text}
+        clean = text.strip()
+        lower = clean.lower()
 
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
+        # 1) Command help / start
+        if lower.startswith("/start") or lower.startswith("/help") or lower.startswith("start") or lower.startswith("help"):
+            await send_telegram_message(chat_id, HELP_TEXT, client)
+            return
+
+        # 2) History harian
+        if lower.startswith("/history_harian") or lower.startswith("histori_harian") or lower.startswith("histori harian"):
+            txs, label = await transaction_service.get_transactions_for_period(
+                prisma=prisma,
+                user_id=user_id,
+                period="today",
+            )
+            summary = transaction_service.build_history_summary(label, txs)
+            await send_telegram_message(chat_id, summary, client)
+            return
+
+        # 3) History mingguan
+        if lower.startswith("/history_mingguan") or lower.startswith("histori_mingguan") or lower.startswith("histori mingguan"):
+            txs, label = await transaction_service.get_transactions_for_period(
+                prisma=prisma,
+                user_id=user_id,
+                period="week",
+            )
+            summary = transaction_service.build_history_summary(label, txs)
+            await send_telegram_message(chat_id, summary, client)
+            return
+
+        # 4) Export Excel mingguan
+        if lower.startswith("/export_mingguan") or lower.startswith("export_mingguan") or lower.startswith("export mingguan"):
+            file_path, file_name = await transaction_service.create_excel_report(
+                prisma=prisma,
+                user_id=user_id,
+                period="week",
+            )
+            if not file_path:
+                await send_telegram_message(
+                    chat_id,
+                    "Belum ada transaksi dalam 7 hari terakhir, tidak ada file yang bisa diekspor.",
+                    client,
+                )
+                return
+
+            await send_telegram_document(
+                chat_id,
+                file_path,
+                "Laporan transaksi mingguan (7 hari terakhir)",
+                client,
+            )
+            return
+
+        # 5) Export Excel bulanan
+        if lower.startswith("/export_bulanan") or lower.startswith("export_bulanan") or lower.startswith("export bulanan"):
+            file_path, file_name = await transaction_service.create_excel_report(
+                prisma=prisma,
+                user_id=user_id,
+                period="month",
+            )
+            if not file_path:
+                await send_telegram_message(
+                    chat_id,
+                    "Belum ada transaksi dalam 30 hari terakhir, tidak ada file yang bisa diekspor.",
+                    client,
+                )
+                return
+
+            await send_telegram_document(
+                chat_id,
+                file_path,
+                "Laporan transaksi bulanan (30 hari terakhir)",
+                client,
+            )
+            return
+
+        # 6) Export Excel tahunan
+        if lower.startswith("/export_tahunan") or lower.startswith("export_tahunan") or lower.startswith("export tahunan"):
+            file_path, file_name = await transaction_service.create_excel_report(
+                prisma=prisma,
+                user_id=user_id,
+                period="year",
+            )
+            if not file_path:
+                await send_telegram_message(
+                    chat_id,
+                    "Belum ada transaksi dalam 365 hari terakhir, tidak ada file yang bisa diekspor.",
+                    client,
+                )
+                return
+
+            await send_telegram_document(
+                chat_id,
+                file_path,
+                "Laporan transaksi tahunan (365 hari terakhir)",
+                client,
+            )
+            return
+
+        # 7) Bukan command -> anggap sebagai teks transaksi biasa
+        result = await process_text_message(
+            user_id=user_id,
+            text=text,
+            source="telegram",
+        )
+
+        if not result:
+            await send_telegram_message(
+                chat_id,
+                "Maaf, aku tidak bisa memahami pesan ini sebagai transaksi.",
+                client,
+            )
+            return
+
+        amount = result.get("amount")
+        category = result.get("category")
+        direction = result.get("direction")
+
+        lines = ["✅ Transaksi berhasil dicatat."]
+        if amount is not None:
+            lines.append(f"• Jumlah: Rp {amount:,.0f}")
+        if category:
+            lines.append(f"• Kategori: {category}")
+        if direction:
+            lines.append(f"• Tipe: {direction}")
+
+        await send_telegram_message(
+            chat_id,
+            "\n".join(lines),
+            client,
+        )
+
     except Exception as e:
-        print(f"Error sending Telegram message: {str(e)}")
+        print(f"Error in handle_text_message: {e}")
+        await send_telegram_message(
+            chat_id,
+            "Terjadi error saat memproses transaksi. Coba lagi nanti.",
+            client,
+        )
 
 async def handle_text_message(
     user_id: int,
@@ -67,6 +225,22 @@ async def handle_text_message(
             "Terjadi error saat memproses transaksi. Coba lagi nanti.",
             client,
         )
+
+async def send_telegram_document(
+    chat_id: int,
+    file_path: str,
+    caption: str,
+    client: httpx.AsyncClient,
+):
+    try:
+        url = f"{TELEGRAM_API_URL}/bot{BOT_TOKEN}/sendDocument"
+        with open(file_path, "rb") as f:
+            files = {"document": ("report.xlsx", f)}
+            data = {"chat_id": chat_id, "caption": caption}
+            response = await client.post(url, data=data, files=files)
+            response.raise_for_status()
+    except Exception as e:
+        print(f"Error sending Telegram document: {str(e)}")
 
 @router.post("/tg_webhook")
 async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):

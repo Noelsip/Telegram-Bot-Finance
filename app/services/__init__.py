@@ -21,6 +21,11 @@ from .user_service import (
     update_user,
     user_exists,
 )
+from .transaction_service import (
+    get_transactions_for_period,
+    build_history_summary,
+    create_excel_report,
+)
 
 __all__ = [
     # Media service
@@ -41,4 +46,8 @@ __all__ = [
     "get_user_by_id",
     "user_exists",
     "get_user_stats",
+     # Transaction service
+    "get_transactions_for_period",
+    "build_history_summary",
+    "create_excel_report",
 ]
