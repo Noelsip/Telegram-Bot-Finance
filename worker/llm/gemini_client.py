@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 import google.generativeai as genai
 
 # Constants
-DEFAULT_MODEL = "gemini-1.5-flash"
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_BACKOFF_BASE = 0.8
 

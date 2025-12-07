@@ -62,7 +62,7 @@ model LlmResponse {
   inputSource String  @map("input_source")
   inputText  String?  @map("input_text") @db.Text
   promptUsed String?  @map("prompt_used") @db.Text
-  modelName  String?  @map("model_name") @default("gemini-1.5-flash")
+  modelName  String?  @map("model_name") @default("gemini-2.5-flash")
   llmOutput  Json     @map("llm_output")
   llmMeta    Json?    @map("llm_meta")
   createdAt  DateTime @default(now()) @map("created_at")
@@ -90,7 +90,6 @@ model Transaction {
   category      String
   note          String?    @db.Text
   
-  status        String     @default("confirmed")
   needsReview   Boolean    @default(false) @map("needs_review")
   extra         Json?      // arbitrary metadata, sanity checks, flags
   createdAt     DateTime   @default(now()) @map("created_at")

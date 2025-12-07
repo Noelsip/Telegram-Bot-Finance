@@ -1,21 +1,19 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:15-alpine
     container_name: keuangan-db
     restart: always
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER:-keuangan_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password_keuangan}
+      POSTGRES_DB: ${DB_NAME:-keuangan_bot_db}
     ports:
-      - "${DB_PORT}:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-keuangan_user} -d ${DB_NAME:-keuangan_bot_db}"]
+      interval: 5s
       timeout: 5s
       retries: 5
 
@@ -27,9 +25,10 @@ services:
       db:
         condition: service_healthy
     environment:
-      BOT_TOKEN: ${BOT_TOKEN}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DATABASE_URL=postgresql://${DB_USER:-keuangan_user}:${DB_PASSWORD:-password_keuangan}@db:5432/${DB_NAME:-keuangan_bot_db}
+      - WORKER_MODE=test
     volumes:
       - ./upload:/app/upload
       - ./exports:/app/exports

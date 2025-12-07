@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-# Install system dependencies + Tesseract
+# Install system dependencies + Tesseract + OpenCV dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     libtesseract-dev \
     libpq-dev \
     curl \
+    libgl1 \
+    libglib2.0-0 \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -40,7 +42,10 @@ RUN python -m prisma generate
 # Copy application code
 COPY . .
 
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
 # Create directories
 RUN mkdir -p upload/receipts upload/temp exports
 
-CMD ["python", "bot.py"]
+CMD ["python", "main.py"]

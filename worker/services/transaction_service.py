@@ -1,37 +1,143 @@
-"""
-Transaction Service
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Business logic untuk menyimpan LLM responses & transactions ke database.
-Menggunakan dependency injection untuk DB client agar mudah di-test.
-"""
-
 from datetime import datetime
 from typing import Dict, Optional, Any
 import logging
 import json
+from decimal import Decimal
+
+from app.db.connection import prisma 
 
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
 # Custom Exceptions
-# ============================================================================
-
 class TransactionServiceError(Exception):
     """Base exception untuk transaction service"""
     pass
-
 
 class DatabaseSaveError(TransactionServiceError):
     """Error saat menyimpan ke database"""
     pass
 
+async def save_transaction(
+    user_id: int,
+    amount: float,
+    category: str,
+    description: str,
+    transaction_type: str,
+    llm_response_id: int,
+    receipt_id: Optional[int],
+    source: str,
+    db: Optional[Any] = None
+) -> dict:
+    """
+    Simple save transaction untuk worker_main.py
+    
+    Args:
+        user_id: User ID
+        amount: Amount dalam float/Decimal
+        category: Category string
+        description: Deskripsi/note
+        transaction_type: "masuk" atau "keluar"
+        llm_response_id: ID dari llm_responses table
+        receipt_id: ID dari receipts table (optional)
+        source: "telegram" atau "whatsapp"
+        db: Prisma client (optional)
+    
+    Returns:
+        Dict dengan transaction data
+    """
+    db_client = db or prisma
+    
+    try:
+        logger.debug(
+            f"Saving transaction for user {user_id}: "
+            f"type={transaction_type}, amount={amount}"
+        )
+        
+        # Convert to Decimal if needed
+        if isinstance(amount, float):
+            amount = Decimal(str(amount))
+        
+        # Create transaction
+        transaction = await db_client.transaction.create(
+            data={
+                "userId": user_id,
+                "amount": int(amount),
+                "category": category,
+                "note": description,
+                "intent": transaction_type,
+                "llmResponseId": llm_response_id,
+                "receiptId": receipt_id,
+                "currency": "IDR",
+                "txDate": datetime.now(),
+                "needsReview": False,
+                "createdAt": datetime.now(),
+                "extra": json.dumps({"source": source})
+            }
+        )
+        
+        logger.info(f"Transaction saved: id={transaction.id}")
+        return {
+            "id": transaction.id,
+            "userId": transaction.userId,
+            "amount": transaction.amount,
+            "category": transaction.category,
+            "note": transaction.note,
+            "intent": transaction.intent,
+            "currency": transaction.currency,
+            "createdAt": transaction.createdAt.isoformat() if transaction.createdAt else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error saving transaction: {e}", exc_info=True)
+        raise TransactionServiceError(f"Failed to save transaction: {e}") from e
+    
+async def save_ocr_result(
+    receipt_id: int,
+    raw_text: str,
+    confidence: float,
+    db: Optional[Any] = None
+) -> dict:
+    """
+    Save OCR result untuk worker_main.py
+    
+    Args:
+        receipt_id: Receipt ID
+        raw_text: Raw OCR text
+        confidence: OCR confidence score (0-100)
+        db: Prisma client (optional)
+    
+    Returns:
+        Dict dengan OCR text data
+    """
+    db_client = db or prisma
+    
+    try:
+        logger.debug(f"Saving OCR text for receipt {receipt_id}")
+        
+        ocr_text = await db_client.ocrtext.create(
+            data={
+                "receiptId": receipt_id,
+                "ocrRaw": raw_text,
+                "ocrMeta": json.dumps({"confidence": confidence}),
+                "createdAt": datetime.now()
+            }
+        )
+        
+        logger.info(f"OCR text saved: id={ocr_text.id}")
+        return {
+            "id": ocr_text.id,
+            "receiptId": ocr_text.receiptId,
+            "confidence": confidence,
+            "createdAt": ocr_text.createdAt.isoformat() if ocr_text.createdAt else None
+        }
 
-# ============================================================================
+        
+    except Exception as e:
+        logger.error(f"Error saving OCR result: {e}", exc_info=True)
+        raise TransactionServiceError(f"Failed to save OCR result: {e}") from e
+
 # Internal Helper Functions
-# ============================================================================
-
 async def _save_llm_response(db: Any, payload: Dict) -> Optional[int]:
     """
     Save LLM response ke database
@@ -68,7 +174,7 @@ async def _save_llm_response(db: Any, payload: Dict) -> Optional[int]:
                 "inputSource": payload.get("input_source", "text"),
                 "inputText": payload["input_text"],
                 "promptUsed": payload.get("prompt_used", ""),
-                "modelName": payload.get("model", "gemini-pro"),
+                "modelName": payload.get("model", "gemini-2.5-flash"),
                 "llmOutput": payload.get("llm_output", ""),
                 "llmMeta": json.dumps(payload.get("llm_meta", {})),
                 "createdAt": datetime.now()
@@ -82,8 +188,7 @@ async def _save_llm_response(db: Any, payload: Dict) -> Optional[int]:
     except Exception as e:
         logger.error(f"Failed to save LLM response: {e}", exc_info=True)
         raise DatabaseSaveError(f"Failed to save LLM response: {e}") from e
-
-
+    
 async def _save_ocr_text(db: Any, payload: Dict) -> Optional[int]:
     """
     Save OCR text result ke database
@@ -122,7 +227,6 @@ async def _save_ocr_text(db: Any, payload: Dict) -> Optional[int]:
     except Exception as e:
         logger.error(f"Failed to save OCR text: {e}", exc_info=True)
         raise DatabaseSaveError(f"Failed to save OCR text: {e}") from e
-
 
 async def _save_transaction(db: Any, payload: Dict) -> Optional[int]:
     """
@@ -189,7 +293,6 @@ async def _save_transaction(db: Any, payload: Dict) -> Optional[int]:
         logger.error(f"Failed to save transaction: {e}", exc_info=True)
         raise DatabaseSaveError(f"Failed to save transaction: {e}") from e
 
-
 def _parse_transaction_date(date_str: Optional[str]) -> Optional[datetime]:
     """
     Parse transaction date dari ISO string
@@ -210,10 +313,7 @@ def _parse_transaction_date(date_str: Optional[str]) -> Optional[datetime]:
         return None
 
 
-# ============================================================================
 # Public API Functions
-# ============================================================================
-
 async def save_transaction_from_text(
     user_id: int,
     text: str,
@@ -284,7 +384,7 @@ async def save_transaction_from_text(
             "input_source": "text",
             "input_text": text,
             "prompt_used": llm_metadata.get("prompt_used", ""),
-            "model": llm_metadata.get("model", "gemini-pro"),
+            "model": llm_metadata.get("model", "gemini-2.5-flash"),
             "llm_output": parsed_output.get("raw_output", ""),
             "llm_meta": {
                 "finish_reason": llm_metadata.get("finish_reason"),
@@ -351,7 +451,6 @@ async def save_transaction_from_text(
     except Exception as e:
         logger.error(f"Unexpected error saving transaction from text: {e}", exc_info=True)
         raise TransactionServiceError(f"Failed to save transaction: {e}") from e
-
 
 async def save_transaction_from_ocr(
     user_id: int,
@@ -423,7 +522,7 @@ async def save_transaction_from_ocr(
             "input_source": "ocr",
             "input_text": ocr_text,
             "prompt_used": llm_metadata.get("prompt_used", ""),
-            "model": llm_metadata.get("model", "gemini-pro"),
+            "model": llm_metadata.get("model", "gemini-2.5-flash"),
             "llm_output": parsed_output.get("raw_output", ""),
             "llm_meta": {
                 **llm_metadata,
@@ -500,10 +599,7 @@ async def save_transaction_from_ocr(
         logger.error(f"Unexpected error saving transaction from OCR: {e}", exc_info=True)
         raise TransactionServiceError(f"Failed to save OCR transaction: {e}") from e
 
-
-# ============================================================================
 # Additional Helper Functions (Bonus)
-# ============================================================================
 
 async def get_user_transactions(
     user_id: int,
@@ -555,7 +651,6 @@ async def get_user_transactions(
     except Exception as e:
         logger.error(f"Failed to fetch user transactions: {e}", exc_info=True)
         raise TransactionServiceError(f"Failed to fetch transactions: {e}") from e
-
 
 async def update_transaction_status(
     transaction_id: int,
