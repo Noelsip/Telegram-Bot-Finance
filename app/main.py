@@ -6,6 +6,7 @@ import subprocess
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 import httpx
+from fastapi.routing import APIRoute
 
 # Import Prisma client
 from app.db import prisma, connect_db
@@ -65,8 +66,15 @@ app = FastAPI(
 async def health_check():
     return {"status": "ok"}
 
-app.include_router(telegram_router)  
+app.include_router(telegram_router, prefix="/tg_webhook", tags=["Telegram"])  
 app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
+
+@app.on_event("startup")
+async def log_routes():
+    logger.info("Registered routes:")
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            logger.info(f"  {route.path} {route.methods}")
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
