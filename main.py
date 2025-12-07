@@ -6,7 +6,9 @@ Temporary entry point untuk testing worker tanpa bot
 import asyncio
 import logging
 import os
+import subprocess
 from dotenv import load_dotenv
+from fastapi import FastAPI
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +21,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TEST_USER_ID = 123456789
+
+app = FastAPI()
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
 
 async def ensure_test_user_exists():
     """Create test user jika belum ada"""
@@ -55,44 +63,46 @@ async def test_worker():
     logger.info("WORKER TEST MODE")
     logger.info("=" * 70)
     
+    # Run migrations SEBELUM koneksi database
+    logger.info("Running database migrations...")
+    subprocess.run(["python", "-m", "prisma", "migrate", "deploy"], check=True)
+    
     # Connect to database
     logger.info("Connecting to database...")
     await connect_db()
     logger.info("✅ Database connected!")
     
-    # Run migrations
-    logger.info("Running database migrations...")
-    os.system("python -m prisma migrate deploy")
-    
-    # Ensure test user exists
-    await ensure_test_user_exists()
-    
-    # Test worker dengan sample data
-    test_cases = [
-        "Makan siang warteg 25rb",
-        "Gaji bulan ini masuk 5jt",
-        "Transfer ke teman 100rb"
-    ]
-    
-    logger.info("\n" + "=" * 70)
-    logger.info("Testing Worker with Sample Data")
-    logger.info("=" * 70)
-    
-    for i, text in enumerate(test_cases, 1):
-        logger.info(f"\n📝 Test {i}/{len(test_cases)}: {text}")
+    # Hanya jalankan di development
+    if os.getenv("ENV") == "development":
+        # Ensure test user exists
+        await ensure_test_user_exists()
         
-        result = await process_text_message(
-            user_id=TEST_USER_ID,
-            text=text,
-            source="docker_test"
-        )
+        # Test worker dengan sample data
+        test_cases = [
+            "Makan siang warteg 25rb",
+            "Gaji bulan ini masuk 5jt",
+            "Transfer ke teman 100rb"
+        ]
         
-        if result:
-            logger.info(f"   ✅ SUCCESS - Transaction ID: {result['id']}")
-            logger.info(f"   Amount: Rp {result.get('amount'):,.0f}")
-            logger.info(f"   Category: {result.get('category')}")
-        else:
-            logger.info(f"   ❌ FAILED")
+        logger.info("\n" + "=" * 70)
+        logger.info("Testing Worker with Sample Data")
+        logger.info("=" * 70)
+        
+        for i, text in enumerate(test_cases, 1):
+            logger.info(f"\n📝 Test {i}/{len(test_cases)}: {text}")
+            
+            result = await process_text_message(
+                user_id=TEST_USER_ID,
+                text=text,
+                source="docker_test"
+            )
+            
+            if result:
+                logger.info(f"   ✅ SUCCESS - Transaction ID: {result['id']}")
+                logger.info(f"   Amount: Rp {result.get('amount'):,.0f}")
+                logger.info(f"   Category: {result.get('category')}")
+            else:
+                logger.info(f"   ❌ FAILED")
     
     logger.info("\n" + "=" * 70)
     logger.info("Worker test complete!")

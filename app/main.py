@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 import logging
+import subprocess
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -10,7 +11,7 @@ import httpx
 from app.db import prisma, connect_db
 
 # Import routers
-from app.webhook import telegram_router, whatsapp_router\
+from app.webhook import telegram_router, whatsapp_router
 
 # Setup logging
 logging.basicConfig(
@@ -26,6 +27,12 @@ async def lifespan(app: FastAPI):
     global http_client
 
     try:
+        # Jalankan migrasi database pertama-tama
+        logger.info("Running database migrations...")
+        subprocess.run(["python", "-m", "prisma", "migrate", "deploy"], check=True)
+        
+        # Connect to database
+        logger.info("Connecting to database...")
         await connect_db()
         logger.info("✅ Database connected successfully")
 
@@ -38,6 +45,12 @@ async def lifespan(app: FastAPI):
         raise
 
     yield
+    
+    # Cleanup
+    if http_client:
+        await http_client.aclose()
+    await prisma.disconnect()
+    logger.info("♻️ Resources cleaned up")
 
 #Setup FastAPI app
 app = FastAPI(
@@ -47,9 +60,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 app.include_router(telegram_router, prefix="/webhook/telegram", tags=["Telegram"])
 app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
-
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
