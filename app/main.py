@@ -77,7 +77,7 @@ async def log_routes():
             logger.info(f"  {route.path} {route.methods}")
 
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
+async def http_exception_handler(request: Request, exc: HTTPException): 
     logger.warning(
         f"HTTP Exception: {exc.status_code} - {exc.detail} - Path: {request.url.path}"
     )

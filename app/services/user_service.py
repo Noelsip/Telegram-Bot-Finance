@@ -25,12 +25,14 @@ async def get_or_create_user(
         # Pakai upsert supaya atomic, hindari race condition
         user = await prisma.user.upsert(
             where={"id": user_id},
-            create={
-                "id": user_id,
-                "username": username,
-                "displayName": display_name_final,
+            data={
+                "create": {
+                    "id": user_id,
+                    "username": username,
+                    "displayName": display_name_final,
+                },
+                "update": {},  # tidak update apa-apa kalau sudah ada
             },
-            update={},  # Tidak update apa-apa kalau sudah ada
         )
         
         _logger.info(f"User ready: {user_id} ({display_name_final}) from {source}")
