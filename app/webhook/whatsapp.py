@@ -8,15 +8,23 @@ from app.config import (
     WHATSAPP_API_URL,
 )
 from app.db import prisma
-from app.services import user_service, media_service, receipt_service
+from app.services import (
+    user_service,
+    media_service,
+    receipt_service,
+    get_transactions_for_period,
+    build_history_summary,
+)
 from app.utils.helpers import parse_phone_number
+from worker import process_text_message, process_image_message
+from app.webhook.telegram import HELP_TEXT, detect_special_intent
 
 router = APIRouter()
 
 
 async def send_whatsapp_message(
     recipient_phone: str, message: str, client: httpx.AsyncClient
-):
+) -> None:
     try:
         url = f"{WHATSAPP_API_URL}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
         headers = {
@@ -32,10 +40,158 @@ async def send_whatsapp_message(
 
         response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        return response.json()
     except Exception as e:
         print(f"Error sending WhatsApp message: {str(e)}")
-        return None
+
+
+async def handle_whatsapp_text_message(
+    user_id: int,
+    phone: str,
+    text_body: str,
+    client: httpx.AsyncClient,
+):
+    try:
+        clean = text_body.strip()
+        intent, period = detect_special_intent(clean)
+
+        if intent == "help":
+            await send_whatsapp_message(phone, HELP_TEXT, client)
+            return
+
+        if intent == "history":
+            if period == "today":
+                txs, label = await get_transactions_for_period(
+                    prisma=prisma,
+                    user_id=user_id,
+                    period="today",
+                )
+            elif period == "week":
+                txs, label = await get_transactions_for_period(
+                    prisma=prisma,
+                    user_id=user_id,
+                    period="week",
+                )
+            elif period == "month":
+                txs, label = await get_transactions_for_period(
+                    prisma=prisma,
+                    user_id=user_id,
+                    period="month",
+                )
+            elif period == "year":
+                txs, label = await get_transactions_for_period(
+                    prisma=prisma,
+                    user_id=user_id,
+                    period="year",
+                )
+            else:
+                await send_whatsapp_message(
+                    phone,
+                    "Periode tidak didukung.",
+                    client,
+                )
+                return
+
+            summary = build_history_summary(label, txs)
+            await send_whatsapp_message(phone, summary, client)
+            return
+
+        if intent == "export":
+            await send_whatsapp_message(
+                phone,
+                "Fitur export Excel via WhatsApp belum tersedia. Silakan gunakan bot Telegram untuk menerima file Excel.",
+                client,
+            )
+            return
+
+        result = await process_text_message(
+            user_id=user_id,
+            text=clean,
+            source="whatsapp",
+        )
+
+        if not result:
+            await send_whatsapp_message(
+                phone,
+                "Maaf, aku tidak bisa memahami pesan ini sebagai transaksi.",
+                client,
+            )
+            return
+
+        amount = result.get("amount")
+        category = result.get("category")
+        direction = result.get("direction")
+
+        lines = ["✅ Transaksi berhasil dicatat."]
+        if amount is not None:
+            lines.append(f"• Jumlah: Rp {amount:,.0f}")
+        if category:
+            lines.append(f"• Kategori: {category}")
+        if direction:
+            lines.append(f"• Tipe: {direction}")
+
+        await send_whatsapp_message(
+            phone,
+            "\n".join(lines),
+            client,
+        )
+
+    except Exception as e:
+        print(f"Error in handle_whatsapp_text_message: {e}")
+        await send_whatsapp_message(
+            phone,
+            "Terjadi error saat memproses transaksi. Coba lagi nanti.",
+            client,
+        )
+
+
+async def process_whatsapp_receipt_background(
+    user_id: int,
+    phone: str,
+    receipt_id: int,
+    file_path: str,
+    client: httpx.AsyncClient,
+):
+    try:
+        result = await process_image_message(
+            user_id=user_id,
+            receipt_id=receipt_id,
+            file_path=file_path,
+            source="whatsapp",
+        )
+
+        if not result:
+            await send_whatsapp_message(
+                phone,
+                "Struk sudah diproses, tapi aku belum bisa mengenali transaksinya. Coba kirim foto yang lebih jelas ya.",
+                client,
+            )
+            return
+
+        amount = result.get("amount")
+        category = result.get("category")
+        direction = result.get("direction")
+
+        lines = ["✅ Transaksi dari struk berhasil dicatat."]
+        if amount is not None:
+            lines.append(f"• Jumlah: Rp {amount:,.0f}")
+        if category:
+            lines.append(f"• Kategori: {category}")
+        if direction:
+            lines.append(f"• Tipe: {direction}")
+
+        await send_whatsapp_message(
+            phone,
+            "\n".join(lines),
+            client,
+        )
+
+    except Exception as e:
+        print(f"Error in process_whatsapp_receipt_background: {e}")
+        await send_whatsapp_message(
+            phone,
+            "Terjadi error saat memproses struk. Coba lagi nanti.",
+            client,
+        )
 
 
 @router.get("/")
@@ -87,17 +243,24 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                         user_id=int(user_id),
                         username=None,
                         display_name=display_name,
-                        source="whatsapp"
+                        source="whatsapp",
                     )
 
                     if message_type == "text":
                         text_body = message.get("text", {}).get("body")
 
                         if text_body:
-                            print(f"WhatsApp text - User: {user.id}, Message: {message_id}, Body: {text_body[:50]}")
-                            await send_whatsapp_message(
+                            print(
+                                f"WhatsApp text - User: {user.id}, Message: {message_id}, Body: {text_body[:50]}"
+                            )
+
+                            # Deteksi intent dan proses langsung (tanpa worker) untuk help/history/export
+                            # atau kirim ke worker untuk transaksi biasa
+                            background_tasks.add_task(
+                                handle_whatsapp_text_message,
+                                int(user_id),
                                 from_phone,
-                                "Pesan diterima dan sedang diproses.",
+                                text_body,
                                 client,
                             )
 
@@ -120,12 +283,24 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                                 mime_type=media_info["mime_type"],
                                 file_size=media_info["file_size"],
                             )
-                            
-                            print(f"WhatsApp image - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
+
+                            print(
+                                f"WhatsApp image - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}"
+                            )
 
                             await send_whatsapp_message(
                                 from_phone,
                                 "Foto struk diterima dan sedang diproses.",
+                                client,
+                            )
+
+                            # Proses OCR + transaksi di background dan kirim ringkasan
+                            background_tasks.add_task(
+                                process_whatsapp_receipt_background,
+                                int(user_id),
+                                from_phone,
+                                receipt.id,
+                                media_info["file_path"],
                                 client,
                             )
 
