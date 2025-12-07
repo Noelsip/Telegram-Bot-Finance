@@ -6,7 +6,7 @@ from app.config import BOT_TOKEN, TELEGRAM_API_URL
 from app.services import user_service, media_service, receipt_service
 from app.db import prisma 
 
-router = APIRouter(prefix="/telegram", tags=["Telegram"], trailing_slash=False)
+router = APIRouter(tags=["Telegram"], trailing_slash=True)
 
 async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClient):
     try:
@@ -19,7 +19,7 @@ async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClie
         print(f"Error sending Telegram message: {str(e)}")
 
 
-@router.post("")
+@router.post("/tg_webhook")
 async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()

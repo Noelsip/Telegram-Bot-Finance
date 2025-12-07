@@ -66,7 +66,7 @@ app = FastAPI(
 async def health_check():
     return {"status": "ok"}
 
-app.include_router(telegram_router, prefix="/tg_webhook", tags=["Telegram"])  
+app.include_router(telegram_router, tags=["Telegram"])  
 app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
 
 @app.on_event("startup")
