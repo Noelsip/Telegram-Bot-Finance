@@ -52,7 +52,7 @@ async def handle_whatsapp_text_message(
 ):
     try:
         clean = text_body.strip()
-        intent, period = detect_special_intent(clean)
+        intent, period, direction = detect_special_intent(clean)
 
         if intent == "help":
             await send_whatsapp_message(phone, HELP_TEXT, client)
@@ -64,24 +64,28 @@ async def handle_whatsapp_text_message(
                     prisma=prisma,
                     user_id=user_id,
                     period="today",
+                    direction=direction,
                 )
             elif period == "week":
                 txs, label = await get_transactions_for_period(
                     prisma=prisma,
                     user_id=user_id,
                     period="week",
+                    direction=direction,
                 )
             elif period == "month":
                 txs, label = await get_transactions_for_period(
                     prisma=prisma,
                     user_id=user_id,
                     period="month",
+                    direction=direction,
                 )
             elif period == "year":
                 txs, label = await get_transactions_for_period(
                     prisma=prisma,
                     user_id=user_id,
                     period="year",
+                    direction=direction,
                 )
             else:
                 await send_whatsapp_message(

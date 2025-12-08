@@ -46,7 +46,7 @@ async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClie
     except Exception as e:
         print(f"Error sending Telegram message: {str(e)}")
 
-def detect_special_intent(text: str) -> tuple[str | None, str | None]:
+def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None]:
     """
     Mendeteksi intent khusus (help/history/export) + periode (today/week/month/year)
     dari teks natural sederhana bhs Indonesia / Inggris.
@@ -57,11 +57,11 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None]:
     - "butuh bantuan cara pakai", "/start", "help", dll.
     """
     if not text:
-        return None, None
+        return None, None, None
 
     s = text.strip().lower()
     if not s:
-        return None, None
+        return None, None, None
 
     # membuang leading slash utk command /start, /history_mingguan.
     s = s.lstrip("/")
@@ -100,7 +100,7 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None]:
     ]
 
     if s.startswith("start") or has_any(help_phrases):
-        return "help", None
+        return "help", None, None
 
     # PERIODE 
     period: str | None = None
@@ -182,6 +182,37 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None]:
     elif has_any(year_phrases) or has_any(all_time_phrases):
         period = "year"
 
+    direction: str | None = None
+
+    income_words = [
+        "pemasukan",
+        "income",
+        "penghasilan",
+        "gaji",
+        "uang masuk",
+        "penerimaan",
+        "masuk saja",
+        "hanya pemasukan",
+        "hanya income",
+    ]
+
+    expense_words = [
+        "pengeluaran",
+        "biaya",
+        "beban",
+        "spending",
+        "expense",
+        "uang keluar",
+        "belanja",
+        "hanya pengeluaran",
+        "hanya expense",
+    ]
+
+    if has_any(income_words):
+        direction = "masuk"
+    elif has_any(expense_words):
+        direction = "keluar"
+
     # HISTORY 
     history_phrases = [
         "history",
@@ -206,7 +237,7 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None]:
     if has_any(history_phrases):
         if period is None:
             period = "today"
-        return "history", period
+        return "history", period, direction
 
     # EXPORT / LAPORAN / EXCEL 
     export_phrases = [
@@ -232,9 +263,9 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None]:
     if has_any(export_phrases):
         if period is None:
             period = "month"
-        return "export", period
+        return "export", period, direction
 
-    return None, None
+    return None, None, None
 
 async def handle_text_message(
     user_id: int,
@@ -244,7 +275,7 @@ async def handle_text_message(
 ):
     try:
         clean = text.strip()
-        intent, period = detect_special_intent(clean)
+        intent, period, direction = detect_special_intent(clean)
 
         # 1) Command help / start
         if intent == "help":
@@ -257,7 +288,9 @@ async def handle_text_message(
                 prisma=prisma,
                 user_id=user_id,
                 period="today",
+                direction=direction,
             )
+
             summary = build_history_summary(label, txs)
             await send_telegram_message(chat_id, summary, client)
             return
@@ -268,7 +301,9 @@ async def handle_text_message(
                 prisma=prisma,
                 user_id=user_id,
                 period="week",
+                direction=direction,
             )
+
             summary = build_history_summary(label, txs)
             await send_telegram_message(chat_id, summary, client)
             return
@@ -549,7 +584,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
         if text:
             print(f"Text message - User: {user.id}, Message: {message_id}, Content: {text[:50]}")
 
-            intent, period = detect_special_intent(text)
+            intent, period, direction = detect_special_intent(text)
             if intent in ("help", "history", "export"):
                 await handle_text_message(
                     user.id,

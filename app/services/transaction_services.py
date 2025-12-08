@@ -36,16 +36,22 @@ async def get_transactions_for_period(
     prisma: Prisma,
     user_id: int,
     period: str,
+    direction: Optional[str] = None,
 ) -> Tuple[List[Transaction], str]:
     """Ambil transaksi user utk periode yg diminta."""
     start, end, label = _get_period_range(period)
 
     _logger.info(f"Fetching {label} transactions for user {user_id}")
+
+    where = {
+        "userId": user_id,
+        "createdAt": {"gte": start, "lte": end},
+    }
+    if direction in ("masuk", "keluar"):
+        where["intent"] = direction
+
     txs = await prisma.transaction.find_many(
-        where={
-            "userId": user_id,
-            "createdAt": {"gte": start, "lte": end},
-        },
+        where=where,
         order={"createdAt": "asc"},
     )
     return txs, label
