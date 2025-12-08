@@ -46,31 +46,190 @@ async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClie
     except Exception as e:
         print(f"Error sending Telegram message: {str(e)}")
 
-def detect_special_intent(text: str):
+def detect_special_intent(text: str) -> tuple[str | None, str | None]:
+    """
+    Mendeteksi intent khusus (help/history/export) + periode (today/week/month/year)
+    dari teks natural sederhana bhs Indonesia / Inggris.
+
+    Contoh yang ditangani:
+    - "riwayat hari ini", "ringkasan 7 hari terakhir", "rekap pengeluaran sebulan terakhir"
+    - "laporan mingguan dalam bentuk excel", "export semua transaksi bulan ini"
+    - "butuh bantuan cara pakai", "/start", "help", dll.
+    """
+    if not text:
+        return None, None
+
     s = text.strip().lower()
     if not s:
         return None, None
+
+    # membuang leading slash utk command /start, /history_mingguan.
     s = s.lstrip("/")
 
-    if s.startswith("start") or "help" in s or "bantuan" in s or "cara pakai" in s or "cara penggunaan" in s:
+    def has_any(phrases: list[str]) -> bool:
+        return any(p in s for p in phrases)
+
+    #  HELP 
+    help_phrases = [
+        "help",
+        "bantuan",
+        "butuh bantuan",
+        "tolong bantu",
+        "cara pakai",
+        "cara penggunaan",
+        "cara guna",
+        "cara menggunakan",
+        "cara kerja",
+        "cara pake",
+        "tutorial",
+        "panduan",
+        "petunjuk",
+        "gimana pakai",
+        "gimana cara",
+        "gmn cara",
+        "gmn pkai",
+        "gmn pakai",
+        "cara pnggunaan",
+        "cara mnggunakan",
+        "pnduan",
+        "ptunjuk",
+        "tlong bntu",
+        "btuh bntuan",
+        "bntu",
+        "bntuan",
+    ]
+
+    if s.startswith("start") or has_any(help_phrases):
         return "help", None
 
-    period = None
-    if "hari ini" in s or "harian" in s or "today" in s:
+    # PERIODE 
+    period: str | None = None
+
+    # Hari ini
+    today_phrases = [
+        "hari ini",
+        "hr ini",
+        "harian",
+        "today",
+        "this day",
+        "hari sekarang",
+        "siang ini",
+        "malam ini",
+        "hri ini",
+    ]
+
+    # Minggu / 7 hari
+    week_phrases = [
+        "minggu ini",
+        "minggu kemarin",
+        "mingguan",
+        "pekan ini",
+        "pekan kemarin",
+        "7 hari",
+        "tujuh hari",
+        "7 hari terakhir",
+        "seminggu",
+        "seminggu terakhir",
+        "last week",
+        "this week",
+    ]
+
+    # Bulan / 30 hari
+    month_phrases = [
+        "bulan ini",
+        "bulan kemarin",
+        "bulanan",
+        "30 hari",
+        "tiga puluh hari",
+        "30 hari terakhir",
+        "sebulan",
+        "sebulan terakhir",
+        "last month",
+        "this month",
+    ]
+
+    # Tahun / all-time-ish
+    year_phrases = [
+        "tahun ini",
+        "tahun kemarin",
+        "tahunan",
+        "365 hari",
+        "tiga ratus enam puluh lima hari",
+        "setahun",
+        "setahun terakhir",
+        "last year",
+        "this year",
+    ]
+
+    # Frasa "semua waktu" / "all time" kita map ke "year"
+    all_time_phrases = [
+        "semua waktu",
+        "sepanjang waktu",
+        "seluruh riwayat",
+        "semua riwayat",
+        "all time",
+        "all history",
+        "semua transaksi",
+        "seluruh transaksi",
+    ]
+
+    if has_any(today_phrases):
         period = "today"
-    elif "minggu" in s or "mingguan" in s or "7 hari" in s or "seminggu" in s:
+    elif has_any(week_phrases):
         period = "week"
-    elif "bulan" in s or "bulanan" in s or "30 hari" in s or "sebulan" in s:
+    elif has_any(month_phrases):
         period = "month"
-    elif "tahun" in s or "tahunan" in s or "365 hari" in s or "setahun" in s:
+    elif has_any(year_phrases) or has_any(all_time_phrases):
         period = "year"
 
-    if "history" in s or "histori" in s or "riwayat" in s:
+    # HISTORY 
+    history_phrases = [
+        "history",
+        "histori",
+        "riwayat",
+        "riwayat transaksi",
+        "riwayat keuangan",
+        "ringkasan",
+        "ringkasan transaksi",
+        "rekap",
+        "rekapan",
+        "rekap transaksi",
+        "summary",
+        "summary transaksi",
+        "lihat transaksi",
+        "cek transaksi",
+        "cek pengeluaran",
+        "cek pemasukan",
+        "report transaksi",
+    ]
+
+    if has_any(history_phrases):
         if period is None:
-            period = "week"
+            period = "today"
         return "history", period
 
-    if "export" in s or "ekspor" in s or "laporan" in s or "report" in s or "excel" in s:
+    # EXPORT / LAPORAN / EXCEL 
+    export_phrases = [
+        "export",
+        "ekspor",
+        "expot",      
+        "laporan",
+        "report",
+        "cetak",
+        "download",
+        "unduh",
+        "kirim file",
+        "kirim laporan",
+        "kirim excel",
+        "file excel",
+        "excel",
+        "spreadsheet",
+        "xlsx",
+        "xls",
+        "laporan transaksi",
+    ]
+
+    if has_any(export_phrases):
         if period is None:
             period = "month"
         return "export", period
