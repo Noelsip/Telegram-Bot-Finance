@@ -228,6 +228,17 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
         "summary",
         "summary transaksi",
         "lihat transaksi",
+        "liat transaksi",
+        "lihat pemasukan",
+        "liat pemasukan",
+        "lihat pengeluaran",
+        "liat pengeluaran",
+        "mau lihat",
+        "mau liat",
+        "pengen lihat",
+        "pengen liat",
+        "ingin lihat",
+        "ingin liat",
         "cek transaksi",
         "cek pengeluaran",
         "cek pemasukan",
@@ -396,7 +407,7 @@ async def handle_text_message(
         category = result.get("category")
         direction = result.get("direction")
 
-        lines = ["✅ Transaksi berhasil dicatat."]
+        lines = ["Transaksi berhasil dicatat."]
         if amount is not None:
             lines.append(f"• Jumlah: Rp {amount:,.0f}")
         if category:
