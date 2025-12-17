@@ -54,9 +54,12 @@ def process_text_message(
             amount=float(parsed["amount"]),
             category=parsed["category"],
             description=parsed["note"],
-            transaction_type=parsed["intent"],  # mapping intent → transaction_type
-            source=source
+            transaction_type=parsed["intent"],
+            source=source,
+            llm_response_id=None,
+            receipt_id=None
         )
+
 
 
 
