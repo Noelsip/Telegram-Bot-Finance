@@ -406,6 +406,7 @@ async def handle_text_message(
         amount = result.get("amount")
         category = result.get("category")
         direction = result.get("direction")
+        intent = result.get("intent")
 
         lines = ["Transaksi berhasil dicatat."]
         if amount is not None:
@@ -414,6 +415,8 @@ async def handle_text_message(
             lines.append(f"• Kategori: {category}")
         if direction:
             lines.append(f"• Tipe: {direction}")
+        if intent:
+            lines.append(f"• Intent: {intent}")
 
         await send_telegram_message(
             chat_id,

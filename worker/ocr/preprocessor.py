@@ -65,15 +65,14 @@ class ImagePreprocessor:
         """
         logger.info(f"Starting preprocessing, input shape: {img.shape}")
         
-        # Step 1: Resize jika terlalu besar
+        # Resize jika terlalu besar
         img = self._resize(img) 
         logger.info(f"After resize, shape: {img.shape}")
         
-        # Step 2: Convert ke grayscale
+        # Convert ke grayscale
         gray = self._to_grayscale(img)
         logger.info(f"After grayscale conversion, shape: {gray.shape}")
         
-        # Optional: Enhance contrast & sharpen sebelum langkah lain
         if self.use_clahe:
             gray = self._enhance_contrast(gray)
             logger.info("After contrast enhancement (CLAHE)")
@@ -82,17 +81,17 @@ class ImagePreprocessor:
             gray = self._sharpen(gray)
             logger.info("After sharpening")
         
-        # Step 3: Deskewing(luruskan)
+        # Deskewing(luruskan)
         if self.auto_deskew:
             gray = self._deskew(gray)
             logger.info("After deskewing")
             
-        # Step 4: Denoising
+        # Denoising
         if self.denoise:
             gray = self._denoise(gray)
             logger.info("After denoising")
         
-        # Step 5: Binarization (opsional)
+        # Binarization (opsional)
         if self.enable_binarize:
             binary = self._binarize(gray)
             logger.info("After binarization")
@@ -100,7 +99,7 @@ class ImagePreprocessor:
             binary = gray
             logger.info("Skip binarization (using grayscale image)")
         
-        # Step 6: Morphological operations (clean up, opsional)
+        # Morphological operations (clean up, opsional)
         if self.enable_morphology and self.enable_binarize:
             result = self._morphology(binary)
             logger.info("After morphological operations")
