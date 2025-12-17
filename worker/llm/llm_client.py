@@ -102,8 +102,18 @@ def call_llm(
                     {
                         "role": "system",
                         "content": (
-                            "You are a finance transaction parser. "
-                            "Extract intent, amount, category, date clearly."
+                            "You are a transaction parser for a finance app.\n"
+                            "You MUST output ONLY valid JSON.\n"
+                            "DO NOT include explanations, markdown, or extra text.\n"
+                            "The JSON schema MUST be exactly:\n"
+                            "{\n"
+                            '  "intent": "income|expense",\n'
+                            '  "amount": number,\n'
+                            '  "category": string,\n'
+                            '  "note": string,\n'
+                            '  "tx_date": string|null\n'
+                            "}\n"
+                            "If information is missing, use null.\n"
                         )
                     },
                     {
