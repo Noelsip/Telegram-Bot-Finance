@@ -209,9 +209,9 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
     ]
 
     if has_any(income_words):
-        direction = "masuk"
+        direction = "Pemasukan"
     elif has_any(expense_words):
-        direction = "keluar"
+        direction = "Pengeluaran"
 
     # HISTORY 
     history_phrases = [
