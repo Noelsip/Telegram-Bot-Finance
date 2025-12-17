@@ -51,16 +51,16 @@ def process_text_message(
 
         save_transaction(
             user_id=user_id,
-            intent=parsed["intent"],
-            amount=parsed["amount"],
-            currency=parsed["currency"],
+            amount=float(parsed["amount"]),
             category=parsed["category"],
-            note=parsed["note"],
+            description=parsed["note"],
+            transaction_type=parsed["intent"],  
+            source=source,
             tx_date=parsed["date"],
             confidence=parsed["confidence"],
-            raw_llm_output=parsed["raw_output"],
-            source=source
+            raw_llm_output=parsed["raw_output"]
         )
+
 
     except (LLMAPIError, ParserError, WorkerError) as e:
         logger.error("Error processing text message: %s", e)
