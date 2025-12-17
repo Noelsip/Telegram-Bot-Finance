@@ -3,7 +3,7 @@ def build_prompt(input_text: str) -> str:
 
 Format output JSON:
 {
-  "intent": "masuk|keluar",
+  "intent": "pemasukan|Pengeluaran",
   "amount": <integer>,
   "currency": "IDR",
   "date": "<ISO8601 or null>",
@@ -13,8 +13,8 @@ Format output JSON:
 }
 
 Rules untuk INTENT:
-- "masuk": Uang masuk (gaji, bonus, transfer masuk, dapat uang, dll)
-- "keluar": Uang keluar (bayar, beli, transfer keluar, hilang, dll)
+- "pemasukan": Uang pemasukan (gaji, bonus, transfer masuk, dapat uang, dll)
+- "Pengeluaran": Uang Pengeluaran (bayar, beli, transfer keluar, hilang, dll)
 
 Rules untuk CATEGORY:
 Pilih salah satu: makan, minuman, belanja, transportasi, tagihan, hiburan, kesehatan, pendidikan, gaji, transfer, lainnya
@@ -44,7 +44,7 @@ Examples:
 
 Input: "Makan siang warteg 25rb"
 Output: {
-   "intent":"keluar",
+   "intent":"Pengeluaran",
    "amount":25000,
    "currency":"IDR",
    "date":null,
@@ -55,7 +55,7 @@ Output: {
 
 Input: "Gaji bulan ini masuk 5jt"
 Output: {
-   "intent":"masuk",
+   "intent":"Pemasukan",
    "amount":5000000,
    "currency":"IDR",
    "date":null,
@@ -66,7 +66,7 @@ Output: {
 
 Input: "Transfer ke teman 100rb"
 Output: {
-   "intent":"keluar",
+   "intent":"Pengeluaran",
    "amount":100000,
    "currency":"IDR",
    "date":null,
@@ -77,7 +77,7 @@ Output: {
 
 Input: "Beli barang random 50rb"
 Output: {
-   "intent":"keluar",
+   "intent":"Pengeluaran",
    "amount":50000,
    "currency":"IDR",
    "date":null,
@@ -88,7 +88,7 @@ Output: {
 
 Input: "Bayar 50rb entah buat apa lupa"
 Output: {
-   "intent":"keluar",
+   "intent":"Pengeluaran",
    "amount":50000,
    "currency":"IDR",
    "date":null,
@@ -99,7 +99,7 @@ Output: {
 
 Input: "Uang hilang 30rb"
 Output: {
-   "intent":"keluar",
+   "intent":"Pengeluaran",
    "amount":30000,
    "currency":"IDR",
    "date":null,
@@ -110,7 +110,7 @@ Output: {
 
 Input: "Dapat uang dari mana ya 200rb"
 Output: {
-   "intent":"masuk",
+   "intent":"Pemasukan",
    "amount":200000,
    "currency":"IDR",
    "date":null,
@@ -121,7 +121,7 @@ Output: {
 
 Input: "Bayar denda parkir 20rb"
 Output: {
-   "intent":"keluar",
+   "intent":"Pengeluaran",
    "amount":20000,
    "currency":"IDR",
    "date":null,
@@ -132,7 +132,7 @@ Output: {
 
 Input: "Kasih uang ke pengemis 5rb"
 Output: {
-   "intent":"keluar",
+   "intent":"Pengeluaran",
    "amount":5000,
    "currency":"IDR",
    "date":null,
