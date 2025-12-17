@@ -6,7 +6,7 @@ from typing import Any, Dict
 from groq import Groq
 
 # Constants
-DEFAULT_MODEL = "gemma2-9b-it"
+DEFAULT_MODEL = "llama-3.1-8b-instant"
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_BACKOFF_BASE = 0.8
 
