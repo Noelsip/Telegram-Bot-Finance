@@ -27,10 +27,15 @@ class WorkerError(Exception):
 
 # TEXT MESSAGE
 
-def process_text_message(user_id: int, text: str) -> None:
+def process_text_message(
+    user_id: int,
+    text: str,
+    source: str = "telegram"
+) -> None:
     logger.info(
-        "Processing text message from user %s via telegram",
-        user_id
+        "Processing text message from user %s via %s",
+        user_id,
+        source
     )
 
     try:
@@ -53,11 +58,12 @@ def process_text_message(user_id: int, text: str) -> None:
             note=parsed["note"],
             tx_date=parsed["date"],
             confidence=parsed["confidence"],
-            raw_llm_output=parsed["raw_output"]
+            raw_llm_output=parsed["raw_output"],
+            source=source
         )
 
-    except (LLMAPIError, ParserError, TransactionServiceError, WorkerError) as e:
-        logger.error("Error processing text message: %s", e, exc_info=True)
+    except (LLMAPIError, ParserError, WorkerError) as e:
+        logger.error("Error processing text message: %s", e)
         raise
 
 
