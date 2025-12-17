@@ -54,12 +54,10 @@ def process_text_message(
             amount=float(parsed["amount"]),
             category=parsed["category"],
             description=parsed["note"],
-            transaction_type=parsed["intent"],  
-            source=source,
-            tx_date=parsed["date"],
-            confidence=parsed["confidence"],
-            raw_llm_output=parsed["raw_output"]
+            transaction_type=parsed["intent"],  # mapping intent → transaction_type
+            source=source
         )
+
 
 
     except (LLMAPIError, ParserError, WorkerError) as e:
