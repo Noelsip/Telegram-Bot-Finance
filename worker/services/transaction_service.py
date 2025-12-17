@@ -351,7 +351,7 @@ async def save_transaction_from_text(
                 'warning': str,
                 'normalized_category': str
             }
-        llm_metadata: Metadata dari gemini_client.call_gemini()
+        llm_metadata: Metadata dari gemini_client.call_llm()
             {
                 'model': str,
                 'finish_reason': str,

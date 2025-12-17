@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 
 from app.models import InputType, IntentType
 from worker.llm.prompts import build_prompt
-from worker.llm.gemini_client import call_gemini
+from .llm.llm_client import call_llm
 from worker.llm.parser import parse_llm_response
 from worker.services.ocr_service import OCRService
 
@@ -106,7 +106,7 @@ class ProcessMessageJob:
     """ngebuild prompt dan manggil LLM"""
     async def _build_and_call_llm(self, text: str) -> str:
         prompt = build_prompt(text)
-        llm_response = await call_gemini(
+        llm_response = await call_llm(
             prompt,
             generation_config={
                 "temperature": 0.1,

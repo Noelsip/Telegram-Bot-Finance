@@ -5,7 +5,7 @@ from datetime import datetime
 
 from app.db.connection import prisma
 from .llm.prompts import build_prompt
-from .llm.gemini_client import call_gemini
+from .llm.llm_client import call_llm
 from .llm.parser import parse_llm_response
 from .services.sanity_checks import run_sanity_checks
 from .services.transaction_service import (
@@ -47,7 +47,7 @@ async def process_text_message(
         logger.debug(f"Built prompt: {prompt[:100]}...")
         
         # Call Gemini API
-        gemini_response = call_gemini(prompt)
+        gemini_response = call_llm(prompt)
         if not gemini_response or not gemini_response.get("text"):
             raise WorkerError("Failed to get response from Gemini API")
         
@@ -152,7 +152,7 @@ async def process_image_message(
         prompt = build_prompt(ocr_text)
         
         #  Call Gemini API
-        gemini_response = call_gemini(prompt)
+        gemini_response = call_llm(prompt)
         if not gemini_response or not gemini_response.get("text"):
             raise WorkerError("Failed to get response from Gemini API")
         
