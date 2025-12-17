@@ -25,7 +25,9 @@ class WorkerError(Exception):
     pass
 
 
+# =========================
 # TEXT MESSAGE
+# =========================
 async def process_text_message(
     user_id: int,
     text: str,
@@ -41,16 +43,26 @@ async def process_text_message(
 
         # 1. Call LLM
         llm_response = call_llm(text)
-        llm_text = llm_response.get("text", "")
+        llm_text = llm_response.get("text")
         if not llm_text:
             raise WorkerError("LLM mengembalikan teks kosong")
 
         logger.info("RAW LLM OUTPUT: %s", llm_text)
 
-        # 2. Parse
+        # 2. Parse hasil LLM
         parsed = parse_llm_response(llm_text)
 
-        # 3. Simpan LLM response (WAJIB untuk FK)
+        # 3. Serialize usage (WAJIB, agar JSON aman)
+        usage = llm_response.get("usage")
+        llm_meta = {}
+        if usage:
+            llm_meta = {
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            }
+
+        # 4. Simpan LLM response (UNTUK FK)
         llm_record = await prisma.llmresponse.create(
             data={
                 "userId": user_id,
@@ -58,13 +70,13 @@ async def process_text_message(
                 "inputText": text,
                 "promptUsed": text,
                 "modelName": llm_response.get("model"),
-                "llmOutput": json.dumps(llm_response),
-                "llmMeta": json.dumps(llm_response.get("usage", {})),
+                "llmOutput": llm_text,                 # ✅ STRING ONLY
+                "llmMeta": json.dumps(llm_meta),       # ✅ DICT ONLY
                 "createdAt": datetime.utcnow()
             }
         )
 
-        # 4. Simpan transaksi (ASYNC + AWAIT)
+        # 5. Simpan transaksi
         transaction = await save_transaction(
             user_id=user_id,
             amount=float(parsed["amount"]),
@@ -79,11 +91,14 @@ async def process_text_message(
         logger.info("Transaction saved: %s", transaction["id"])
         return transaction
 
-    except Exception as e:
+    except (LLMAPIError, ParserError, TransactionServiceError, WorkerError) as e:
         logger.error("Error processing text message: %s", e, exc_info=True)
         return None
 
+
+# =========================
 # IMAGE MESSAGE (OCR)
+# =========================
 async def process_image_message(
     user_id: int,
     receipt_id: int,
@@ -92,14 +107,18 @@ async def process_image_message(
 ) -> Optional[dict]:
 
     try:
-        logger.info(f"Processing image message from user {user_id} via {source}")
+        logger.info(
+            "Processing image message from user %s via %s",
+            user_id,
+            source
+        )
 
-        # --- Preprocess image ---
+        # 1. Preprocess image
         preprocessor = ImagePreprocessor()
         img = load_image(file_path)
         preprocessed_img = preprocessor.preprocess(img)
 
-        # --- OCR ---
+        # 2. OCR
         ocr_engine = TesseractOCR()
         ocr_text, ocr_metadata = ocr_engine.extract_text(preprocessed_img)
 
@@ -108,31 +127,40 @@ async def process_image_message(
 
         logger.info("OCR TEXT:\n%s", ocr_text)
 
-        # --- Simpan OCR ---
+        # 3. Simpan OCR result
         await save_ocr_result(
             receipt_id=receipt_id,
             raw_text=ocr_text,
             confidence=ocr_metadata.get("confidence", 0.0)
         )
 
-        # Build prompt 
+        # 4. Build prompt & call LLM
         prompt = build_prompt(ocr_text)
-
-        # Call LLM 
         llm_response = call_llm(prompt)
-        llm_text = llm_response.get("text", "")
+
+        llm_text = llm_response.get("text")
         if not llm_text:
             raise WorkerError("LLM mengembalikan teks kosong")
 
         logger.info("RAW LLM OUTPUT (OCR): %s", llm_text)
 
-        #  Parse 
+        # 5. Parse & sanity check
         parsed = parse_llm_response(llm_text)
-
-        # Sanity check 
         sanity = run_sanity_checks(parsed)
 
-        #  Simpan LLM response 
+        # 6. Serialize usage
+        usage = llm_response.get("usage")
+        llm_meta = {
+            "ocr_confidence": ocr_metadata.get("confidence", 0.0)
+        }
+        if usage:
+            llm_meta.update({
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            })
+
+        # 7. Simpan LLM response
         llm_record = await prisma.llmresponse.create(
             data={
                 "userId": user_id,
@@ -140,27 +168,22 @@ async def process_image_message(
                 "inputText": ocr_text,
                 "promptUsed": prompt,
                 "modelName": llm_response.get("model"),
-                "llmOutput": json.dumps(llm_response),
-                "llmMeta": json.dumps({
-                    "ocr_confidence": ocr_metadata.get("confidence", 0.0)
-                }),
+                "llmOutput": llm_text,                 # ✅ STRING
+                "llmMeta": json.dumps(llm_meta),       # ✅ JSON
                 "createdAt": datetime.utcnow()
             }
         )
 
-        # Simpan transaksi 
+        # 8. Simpan transaksi
         transaction = await save_transaction(
             user_id=user_id,
-            intent=parsed["intent"],
-            amount=parsed["amount"],
-            currency=parsed["currency"],
+            amount=float(parsed["amount"]),
             category=sanity.get(
                 "normalized_category",
                 parsed["category"]
             ),
-            note=parsed["note"],
-            tx_date=parsed["date"],
-            confidence=parsed["confidence"],
+            description=parsed["note"],
+            transaction_type=parsed["intent"],
             llm_response_id=llm_record.id,
             receipt_id=receipt_id,
             source=source
@@ -173,7 +196,9 @@ async def process_image_message(
         return None
 
 
+# =========================
 # BACKGROUND WRAPPER
+# =========================
 async def process_message_background(
     user_id: int,
     message_type: str,
@@ -190,3 +215,6 @@ async def process_message_background(
         await process_image_message(
             user_id, receipt_id, file_path, source
         )
+
+    else:
+        logger.error("Unknown message type: %s", message_type)
