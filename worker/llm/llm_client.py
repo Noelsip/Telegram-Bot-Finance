@@ -107,7 +107,7 @@ def call_llm(
                             "DO NOT include explanations, markdown, or extra text.\n"
                             "The JSON schema MUST be exactly:\n"
                             "{\n"
-                            '  "intent": "income|expense",\n'
+                            '  "intent": "Pemasukan|Pengeluaran",\n'
                             '  "amount": number,\n'
                             '  "category": string,\n'
                             '  "note": string,\n'

@@ -1,51 +1,53 @@
-import json, re
-from datetime import datetime
+import json
+import re
+from decimal import Decimal
 
-def extract_json_from_text(text: str) -> str:
-    m = re.search(r'\{.*\}', text, re.S)
-    if not m: raise ValueError("No JSON found")
-    return m.group(0)
+class ParserError(Exception):
+    pass
 
-def validate_parsed_output(p: dict) -> dict:
-    intent = p.get("intent")
-    if intent not in {"masuk", "keluar"}:
-            raise ValueError(f"Invalid intent: {intent}. Must be 'masuk' or 'keluar'")    
-    
-    amount = int(p.get("amount") or 0)
-    conf = float(p.get("confidence") or 0.0)
-    date = p.get("date")
-    if date:
-        try: datetime.fromisoformat(date)
-        except: date = None
-    category = p.get("category") or "lainnya"
-    note = p.get("note") or ""
-    return {
-        "intent": intent,
-        "amount": max(0, amount),
-        "currency": "IDR",
-        "date": date,
-        "category": category,
-        "note": note,
-        "confidence": max(0.0, min(1.0, conf)),
-        "parse_success": True,
-        "raw_output": p
-    }
 
-def parse_llm_response(llm_response: dict) -> dict:
+def _extract_json_block(text: str) -> str:
+    """
+    Mengambil JSON object pertama dari teks LLM
+    """
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise ParserError("Tidak ditemukan JSON object dalam response LLM")
+    return match.group(0)
+
+
+def parse_llm_response(llm_text: str) -> dict:
+    """
+    Parse dan validasi response LLM menjadi struktur transaksi
+    """
     try:
-        raw = llm_response.get("text","")
-        obj = json.loads(extract_json_from_text(raw))
-        return validate_parsed_output(obj)
-    except Exception as e:
+        json_text = _extract_json_block(llm_text)
+        data = json.loads(json_text)
+
+        required_fields = [
+            "intent",
+            "amount",
+            "currency",
+            "date",
+            "category",
+            "note",
+            "confidence"
+        ]
+
+        for field in required_fields:
+            if field not in data:
+                raise ParserError(f"Field '{field}' tidak ditemukan")
+
         return {
-            "intent": None,
-            "amount":0,
-            "currency":"IDR",
-            "date":None,
-            "category":"lainnya",
-            "note":"Gagal parse response LLM",
-            "confidence":0.0,
-            "parse_success":False,
-            "error":str(e),
-            "raw_output": llm_response.get("text","")
+            "intent": data["intent"],
+            "amount": Decimal(str(data["amount"])),
+            "currency": data["currency"],
+            "date": data["date"],
+            "category": data["category"],
+            "note": data["note"],
+            "confidence": float(data["confidence"]),
+            "raw_output": llm_text
         }
+
+    except (json.JSONDecodeError, ValueError) as e:
+        raise ParserError(f"Gagal parse JSON: {e}") from e
