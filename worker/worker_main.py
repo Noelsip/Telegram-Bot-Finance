@@ -26,50 +26,64 @@ class WorkerError(Exception):
 
 
 # TEXT MESSAGE
-
-def process_text_message(
+async def process_text_message(
     user_id: int,
     text: str,
     source: str = "telegram"
-) -> None:
-    logger.info(
-        "Processing text message from user %s via %s",
-        user_id,
-        source
-    )
+) -> Optional[dict]:
 
     try:
-        llm_response = call_llm(text)
+        logger.info(
+            "Processing text message from user %s via %s",
+            user_id,
+            source
+        )
 
+        # 1. Call LLM
+        llm_response = call_llm(text)
         llm_text = llm_response.get("text", "")
         if not llm_text:
             raise WorkerError("LLM mengembalikan teks kosong")
 
         logger.info("RAW LLM OUTPUT: %s", llm_text)
 
+        # 2. Parse
         parsed = parse_llm_response(llm_text)
 
-        save_transaction(
+        # 3. Simpan LLM response (WAJIB untuk FK)
+        llm_record = await prisma.llmresponse.create(
+            data={
+                "userId": user_id,
+                "inputSource": "text",
+                "inputText": text,
+                "promptUsed": text,
+                "modelName": llm_response.get("model"),
+                "llmOutput": json.dumps(llm_response),
+                "llmMeta": json.dumps(llm_response.get("usage", {})),
+                "createdAt": datetime.utcnow()
+            }
+        )
+
+        # 4. Simpan transaksi (ASYNC + AWAIT)
+        transaction = await save_transaction(
             user_id=user_id,
             amount=float(parsed["amount"]),
             category=parsed["category"],
             description=parsed["note"],
             transaction_type=parsed["intent"],
-            source=source,
-            llm_response_id=None,
-            receipt_id=None
+            llm_response_id=llm_record.id,
+            receipt_id=None,
+            source=source
         )
 
+        logger.info("Transaction saved: %s", transaction["id"])
+        return transaction
 
-
-
-    except (LLMAPIError, ParserError, WorkerError) as e:
-        logger.error("Error processing text message: %s", e)
-        raise
-
+    except Exception as e:
+        logger.error("Error processing text message: %s", e, exc_info=True)
+        return None
 
 # IMAGE MESSAGE (OCR)
-
 async def process_image_message(
     user_id: int,
     receipt_id: int,
@@ -167,16 +181,12 @@ async def process_message_background(
     receipt_id: int = None,
     file_path: str = None,
     source: str = "telegram"
-) -> None:
+):
 
-    try:
-        if message_type == "text":
-            process_text_message(user_id, text)
-        elif message_type == "image":
-            await process_image_message(
-                user_id, receipt_id, file_path, source
-            )
-        else:
-            logger.error("Unknown message type: %s", message_type)
-    except Exception as e:
-        logger.error("Background processing error: %s", e, exc_info=True)
+    if message_type == "text":
+        await process_text_message(user_id, text, source)
+
+    elif message_type == "image":
+        await process_image_message(
+            user_id, receipt_id, file_path, source
+        )
