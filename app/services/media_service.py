@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
-from app.config import WHATSAPP_ACCESS_TOKEN
+# from app.config import WHATSAPP_ACCESS_TOKEN
 
 import aiofiles
 import httpx
@@ -105,107 +105,107 @@ async def download_telegram_media(
     return result
 
 
-async def download_twilio_media(media_url: str, user_id: Optional[str] = None) -> dict:
-    """Download file dari Twilio (WhatsApp via Twilio)."""
-    user_id_value = str(user_id or "anon")
-    now = datetime.utcnow()
-    timestamp = now.strftime("%Y%m%d%H%M%S")
+# async def download_twilio_media(media_url: str, user_id: Optional[str] = None) -> dict:
+#     """Download file dari Twilio (WhatsApp via Twilio)."""
+#     user_id_value = str(user_id or "anon")
+#     now = datetime.utcnow()
+#     timestamp = now.strftime("%Y%m%d%H%M%S")
 
-    timeout = httpx.Timeout(10.0, read=30.0)
+#     timeout = httpx.Timeout(10.0, read=30.0)
 
-    _logger.info(f"Downloading Twilio media: {media_url}")
+#     _logger.info(f"Downloading Twilio media: {media_url}")
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.get(media_url)
-        response.raise_for_status()
+#     async with httpx.AsyncClient(timeout=timeout) as client:
+#         response = await client.get(media_url)
+#         response.raise_for_status()
 
-        # Coba deteksi MIME dari header
-        content_type = response.headers.get("Content-Type", "application/octet-stream")
-        ext = mimetypes.guess_extension(content_type) or ".bin"
+#         # Coba deteksi MIME dari header
+#         content_type = response.headers.get("Content-Type", "application/octet-stream")
+#         ext = mimetypes.guess_extension(content_type) or ".bin"
 
-        unique_id = uuid.uuid4().hex[:8]
-        generated_name = f"{timestamp}_{user_id_value}_{unique_id}{ext}"
-        destination = UPLOAD_DIR / generated_name
+#         unique_id = uuid.uuid4().hex[:8]
+#         generated_name = f"{timestamp}_{user_id_value}_{unique_id}{ext}"
+#         destination = UPLOAD_DIR / generated_name
 
-        async with aiofiles.open(destination, "wb") as out_file:
-            await out_file.write(response.content)
+#         async with aiofiles.open(destination, "wb") as out_file:
+#             await out_file.write(response.content)
 
-    detected_mime = _determine_mime_type(destination)
-    mime_type = detected_mime or content_type
-    file_size = destination.stat().st_size
+#     detected_mime = _determine_mime_type(destination)
+#     mime_type = detected_mime or content_type
+#     file_size = destination.stat().st_size
 
-    result = {
-        "file_path": str(destination.as_posix()),
-        "file_name": generated_name,
-        "mime_type": mime_type,
-        "file_size": file_size,
-    }
+#     result = {
+#         "file_path": str(destination.as_posix()),
+#         "file_name": generated_name,
+#         "mime_type": mime_type,
+#         "file_size": file_size,
+#     }
 
-    _logger.info(f"Downloaded Twilio media: {result}")
-    return result
+#     _logger.info(f"Downloaded Twilio media: {result}")
+#     return result
 
 
-async def download_whatsapp_media(
-    media_id: str, access_token: str, user_id: Optional[str] = None
-) -> dict:
-    """Download file dari WhatsApp Cloud API."""
-    user_id_value = str(user_id or "anon")
-    now = datetime.utcnow()
-    timestamp = now.strftime("%Y%m%d%H%M%S")
+# async def download_whatsapp_media(
+#     media_id: str, access_token: str, user_id: Optional[str] = None
+# ) -> dict:
+#     """Download file dari WhatsApp Cloud API."""
+#     user_id_value = str(user_id or "anon")
+#     now = datetime.utcnow()
+#     timestamp = now.strftime("%Y%m%d%H%M%S")
     
-    timeout = httpx.Timeout(10.0, read=30.0)
-    headers = {"Authorization": f"Bearer {access_token}"}
+#     timeout = httpx.Timeout(10.0, read=30.0)
+#     headers = {"Authorization": f"Bearer {access_token}"}
     
-    _logger.info(f"Downloading WhatsApp media: {media_id}")
+#     _logger.info(f"Downloading WhatsApp media: {media_id}")
     
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        # Ambil URL media dari WhatsApp API
-        metadata_url = f"https://graph.facebook.com/v17.0/{media_id}"
-        metadata_resp = await _get_with_retries(
-            client, metadata_url, headers=headers
-        )
-        payload = metadata_resp.json()
+#     async with httpx.AsyncClient(timeout=timeout) as client:
+#         # Ambil URL media dari WhatsApp API
+#         metadata_url = f"https://graph.facebook.com/v17.0/{media_id}"
+#         metadata_resp = await _get_with_retries(
+#             client, metadata_url, headers=headers
+#         )
+#         payload = metadata_resp.json()
         
-        if "url" not in payload:
-            error_msg = payload.get("error", {}).get("message", "No URL in response")
-            _logger.error(f"WhatsApp API error: {error_msg}")
-            raise ValueError(f"WhatsApp media error: {error_msg}")
+#         if "url" not in payload:
+#             error_msg = payload.get("error", {}).get("message", "No URL in response")
+#             _logger.error(f"WhatsApp API error: {error_msg}")
+#             raise ValueError(f"WhatsApp media error: {error_msg}")
         
-        download_url = payload["url"]
-        mime_type_from_api = payload.get("mime_type", "application/octet-stream")
+#         download_url = payload["url"]
+#         mime_type_from_api = payload.get("mime_type", "application/octet-stream")
         
-        # Tentukan extension dari MIME type
-        ext = mimetypes.guess_extension(mime_type_from_api) or ".bin"
+#         # Tentukan extension dari MIME type
+#         ext = mimetypes.guess_extension(mime_type_from_api) or ".bin"
         
-        # Generate nama file unik
-        unique_id = uuid.uuid4().hex[:8]
-        generated_name = f"{timestamp}_{user_id_value}_{unique_id}{ext}"
-        destination = UPLOAD_DIR / generated_name
+#         # Generate nama file unik
+#         unique_id = uuid.uuid4().hex[:8]
+#         generated_name = f"{timestamp}_{user_id_value}_{unique_id}{ext}"
+#         destination = UPLOAD_DIR / generated_name
         
-        _logger.debug(f"Downloading from {download_url} to {destination}")
+#         _logger.debug(f"Downloading from {download_url} to {destination}")
         
-        # Download file (non-blocking)
-        async with client.stream("GET", download_url, headers=headers) as download_resp:
-            download_resp.raise_for_status()
-            async with aiofiles.open(destination, "wb") as out_file:
-                async for chunk in download_resp.aiter_bytes(1024 * 64):
-                    await out_file.write(chunk)
+#         # Download file (non-blocking)
+#         async with client.stream("GET", download_url, headers=headers) as download_resp:
+#             download_resp.raise_for_status()
+#             async with aiofiles.open(destination, "wb") as out_file:
+#                 async for chunk in download_resp.aiter_bytes(1024 * 64):
+#                     await out_file.write(chunk)
     
-    # Verifikasi MIME type dari file yang sudah didownload
-    detected_mime = _determine_mime_type(destination)
-    mime_type = detected_mime if detected_mime != "application/octet-stream" else mime_type_from_api
+#     # Verifikasi MIME type dari file yang sudah didownload
+#     detected_mime = _determine_mime_type(destination)
+#     mime_type = detected_mime if detected_mime != "application/octet-stream" else mime_type_from_api
     
-    file_size = destination.stat().st_size
+#     file_size = destination.stat().st_size
     
-    result = {
-        "file_path": str(destination.as_posix()),
-        "file_name": f"whatsapp_{media_id}{ext}",
-        "mime_type": mime_type,
-        "file_size": file_size,
-    }
+#     result = {
+#         "file_path": str(destination.as_posix()),
+#         "file_name": f"whatsapp_{media_id}{ext}",
+#         "mime_type": mime_type,
+#         "file_size": file_size,
+#     }
     
-    _logger.info(f"Downloaded: {result}")
-    return result
+#     _logger.info(f"Downloaded: {result}")
+#     return result
 
 
 def get_mime_type(file_path: str) -> str:

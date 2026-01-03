@@ -3,7 +3,7 @@
 from .media_service import (
     cleanup_old_files,
     download_telegram_media,
-    download_whatsapp_media,
+    # download_whatsapp_media,
     get_mime_type,
 )
 from .receipt_service import (
@@ -30,7 +30,7 @@ from .transaction_services import (
 __all__ = [
     # Media service
     "download_telegram_media",
-    "download_whatsapp_media",
+    # "download_whatsapp_media",
     "get_mime_type",
     "cleanup_old_files",
     # Receipt service
