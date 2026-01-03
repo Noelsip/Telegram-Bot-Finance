@@ -4,3 +4,14 @@ __pycache__
 *.pyc
 .DS_Store
 node_modules/
+.git
+.github
+.env
+.env.*
+*.md
+railway.toml.backup
+Procfile
+docker-compose.yml
+scripts/
+upload/
+exports/

@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-# Install system dependencies + Tesseract + OpenCV
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
@@ -13,47 +13,39 @@ RUN apt-get update && apt-get install -y \
     curl \
     libgl1 \
     libglib2.0-0 \
+    bash \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify Tesseract installation
-RUN tesseract --version
-
 WORKDIR /app
 
 # Copy dependency files
-COPY requirements.txt ./
-COPY package.json package-lock.json* ./
+COPY requirements.txt package.json package-lock.json* ./
 COPY prisma ./prisma/
 
-# Install Python dependencies
+# Install dependencies
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
-
-# Install Node.js packages
-RUN npm ci || npm install
-
-# Generate Prisma Client
-RUN python -m prisma generate
+    && pip install --no-cache-dir -r requirements.txt \
+    && (npm ci || npm install) \
+    && python -m prisma generate
 
 # Copy application code
 COPY . .
 
-# ✅ Copy dan set permission untuk entrypoint script
+# Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Set environment variables
+# Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
-ENV PORT=8000
 
-# Create required directories
+# Create directories
 RUN mkdir -p upload/receipts upload/temp exports asset
 
-# Expose port (Railway akan override dengan dynamic port)
-EXPOSE $PORT
+# Railway will set PORT dynamically
+EXPOSE 8000
 
-# ✅ FIX: Gunakan entrypoint script
+# ✅ Use entrypoint - Railway akan inject $PORT saat runtime
 ENTRYPOINT ["/entrypoint.sh"]

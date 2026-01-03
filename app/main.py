@@ -102,30 +102,35 @@ app = FastAPI(
 # ✅ Health check - always return 200 if app is running
 @app.get("/health")
 async def health_check():
-    """Health check endpoint untuk Railway monitoring"""
+    """
+    Health check endpoint - always returns 200 if app is running
+    Database status is informational only
+    """
     db_status = "unknown"
     user_count = 0
     
+    # Try database, but don't fail health check if DB unavailable
     try:
         user_count = await prisma.user.count()
         db_status = "connected"
     except Exception as e:
-        db_status = f"error: {str(e)[:50]}"
-        logger.warning(f"Health check DB error: {e}")
+        db_status = "disconnected"
+        logger.warning(f"Health check: DB not available - {e}")
     
+    # ✅ ALWAYS return 200 - Railway needs this to pass health check
     return JSONResponse(
         content={
-            "status": "healthy",  # Always healthy if app running
+            "status": "healthy",  # App is running = healthy
             "service": "keuangan-bot",
+            "version": "2.0.0",
             "database": db_status,
             "users": user_count,
             "environment": os.getenv("DEPLOYMENT_ENV", "unknown"),
             "port": os.getenv("PORT", "8000"),
             "timestamp": datetime.now().isoformat()
         },
-        status_code=200
+        status_code=200  # ✅ Always 200
     )
-
 # Root endpoint
 @app.get("/")
 async def root():
