@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 import logging
 import subprocess
+import os
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -53,57 +54,11 @@ async def lifespan(app: FastAPI):
     await prisma.disconnect()
     logger.info("♻️ Resources cleaned up")
 
+# ✅ SINGLE FastAPI app definition
 app = FastAPI(
     title="Keuangan Bot API",
     version="2.0.0",
     lifespan=lifespan
-)
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-http_client: httpx.AsyncClient | None = None
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global http_client
-
-    try:
-        # Jalankan migrasi database pertama-tama
-        logger.info("Running database migrations...")
-        subprocess.run(["python", "-m", "prisma", "migrate", "deploy"], check=True)
-        
-        # Connect to database
-        logger.info("Connecting to database...")
-        await connect_db()
-        logger.info("✅ Database connected successfully")
-
-        http_client = httpx.AsyncClient(timeout=20.0)
-        app.state.http_client = http_client
-        logger.info("🌐 HTTP client initialized")
-
-    except Exception as e:
-        logger.error(f"❌ Failed to start application: {e}")
-        raise
-
-    yield
-    
-    # Cleanup
-    if http_client:
-        await http_client.aclose()
-    await prisma.disconnect()
-    logger.info("♻️ Resources cleaned up")
-
-#Setup FastAPI app
-app = FastAPI(
-    title="Finance Tracker API",
-    description="Telegram & WhatsApp Bot untuk tracking keuangan dengan OCR dan AI",
-    version="1.0.0",
-    lifespan=lifespan,
 )
 
 # Health check endpoint untuk Railway
@@ -112,18 +67,21 @@ async def health_check():
     """Health check endpoint untuk Railway monitoring"""
     try:
         # Test database connection
-        await prisma.user.count()
+        user_count = await prisma.user.count()
+        
         return JSONResponse(
             content={
                 "status": "healthy",
                 "service": "keuangan-bot",
                 "database": "connected",
+                "users": user_count,
+                "environment": os.getenv("DEPLOYMENT_ENV", "unknown"),
                 "timestamp": datetime.now().isoformat()
             },
             status_code=200
         )
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.error(f"Health check failed: {e}", exc_info=True)
         return JSONResponse(
             content={
                 "status": "unhealthy",
@@ -132,7 +90,17 @@ async def health_check():
             },
             status_code=503
         )
-        
+
+# Root endpoint
+@app.get("/")
+async def root():
+    return {
+        "message": "Keuangan Bot API",
+        "version": "2.0.0",
+        "status": "running"
+    }
+
+# Include routers
 app.include_router(telegram_router, tags=["Telegram"])  
 app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
 
@@ -158,7 +126,6 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "timestamp": datetime.now().isoformat(),
         },
     )
-
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

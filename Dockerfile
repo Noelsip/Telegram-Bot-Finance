@@ -51,9 +51,5 @@ RUN mkdir -p upload/receipts upload/temp exports asset
 ENV PORT=8000
 EXPOSE $PORT
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:$PORT/health || exit 1
-
-# Start command
-CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info"]
+# ✅ FIX: Gunakan sh -c untuk expand $PORT variable
+CMD sh -c "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"
