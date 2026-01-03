@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-# Install system dependencies + Tesseract + OpenCV dependencies
+# Install system dependencies + Tesseract + OpenCV
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
@@ -17,12 +17,12 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify Tesseract installed
+# Verify Tesseract installation
 RUN tesseract --version
 
 WORKDIR /app
 
-# Copy requirements
+# Copy dependency files
 COPY requirements.txt ./
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
@@ -32,19 +32,28 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
 # Install Node.js packages
-RUN npm config set registry https://registry.npmmirror.com/ \
-    && (npm ci || npm install) \
-    && npm config set registry https://registry.npmjs.org/
+RUN npm ci || npm install
 
 # Generate Prisma Client
 RUN python -m prisma generate
+
 # Copy application code
 COPY . .
 
+# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Create directories
-RUN mkdir -p upload/receipts upload/temp exports
+# Create required directories
+RUN mkdir -p upload/receipts upload/temp exports asset
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Railway akan set PORT environment variable
+ENV PORT=8000
+EXPOSE $PORT
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:$PORT/health || exit 1
+
+# Start command
+CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info"]

@@ -25,9 +25,7 @@ class WorkerError(Exception):
     pass
 
 
-# =========================
 # TEXT MESSAGE
-# =========================
 async def process_text_message(
     user_id: int,
     text: str,
@@ -96,9 +94,7 @@ async def process_text_message(
         return None
 
 
-# =========================
 # IMAGE MESSAGE (OCR)
-# =========================
 async def process_image_message(
     user_id: int,
     receipt_id: int,
@@ -196,9 +192,7 @@ async def process_image_message(
         return None
 
 
-# =========================
 # BACKGROUND WRAPPER
-# =========================
 async def process_message_background(
     user_id: int,
     message_type: str,

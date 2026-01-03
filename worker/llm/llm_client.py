@@ -3,27 +3,29 @@ import time
 import logging
 from typing import Dict, Any
 
-from groq import Groq
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "llama-3.1-8b-instant"
+DEFAULT_MODEL = "gpt-4o-mini"
 
 
 class LLMAPIError(Exception):
     pass
 
 
-_client: Groq | None = None
+_client: OpenAI | None = None
 
 
-def _get_client() -> Groq:
+def _get_client() -> OpenAI:
+    """Singleton OpenAI client"""
     global _client
     if _client is None:
-        api_key = os.getenv("GROQ_API_KEY")
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise LLMAPIError("GROQ_API_KEY tidak ditemukan di environment")
-        _client = Groq(api_key=api_key)
+            raise LLMAPIError("OPENAI_API_KEY tidak ditemukan di environment")
+        _client = OpenAI(api_key=api_key)
+        logger.info("OpenAI client initialized")
     return _client
 
 
@@ -34,7 +36,22 @@ def call_llm(
     backoff_base: float = 0.8
 ) -> Dict[str, Any]:
     """
-    Memanggil LLM dan SELALU mengembalikan dict dengan text string valid.
+    Memanggil OpenAI API dan mengembalikan dict dengan text string valid.
+    
+    Args:
+        prompt: User prompt untuk LLM
+        model_name: Model OpenAI (default: gpt-4o-mini)
+        max_retries: Jumlah retry jika gagal
+        backoff_base: Base delay untuk exponential backoff
+    
+    Returns:
+        Dict dengan keys:
+            - text: Response text dari LLM (JSON string)
+            - model: Model name yang digunakan
+            - usage: Token usage metadata (dict)
+    
+    Raises:
+        LLMAPIError: Jika API call gagal setelah retry
     """
     if not isinstance(prompt, str) or not prompt.strip():
         raise LLMAPIError("Prompt harus berupa string non-kosong")
@@ -42,6 +59,7 @@ def call_llm(
     last_err = None
     client = _get_client()
 
+    # System prompt untuk force JSON output
     messages = [
         {
             "role": "system",
@@ -69,10 +87,14 @@ def call_llm(
 
     for attempt in range(max_retries):
         try:
+            logger.debug(f"Calling OpenAI API (attempt {attempt + 1}/{max_retries})")
+            
             response = client.chat.completions.create(
                 model=model_name,
                 messages=messages,
-                temperature=0
+                temperature=0,
+                max_completion_tokens=512,
+                response_format={"type": "json_object"}  # Force JSON output
             )
 
             text = response.choices[0].message.content
@@ -80,20 +102,35 @@ def call_llm(
             if not isinstance(text, str) or not text.strip():
                 raise LLMAPIError("LLM mengembalikan teks kosong atau invalid")
 
-            logger.debug("RAW LLM OUTPUT:\n%s", text)
+            logger.debug(f"RAW LLM OUTPUT:\n{text}")
+
+            # Convert usage object to dict
+            usage_dict = None
+            if response.usage:
+                usage_dict = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+                logger.info(f"Token usage: {usage_dict}")
 
             return {
                 "text": text,
                 "model": model_name,
-                "usage": getattr(response, "usage", None)
+                "usage": usage_dict
             }
 
         except Exception as e:
             last_err = e
             logger.warning(
-                "LLM error (attempt %s/%s): %s",
-                attempt + 1, max_retries, e
+                f"LLM error (attempt {attempt + 1}/{max_retries}): {e}",
+                exc_info=True
             )
-            time.sleep(backoff_base * (2 ** attempt))
+            if attempt < max_retries - 1:
+                sleep_time = backoff_base * (2 ** attempt)
+                logger.info(f"Retrying in {sleep_time}s...")
+                time.sleep(sleep_time)
 
-    raise LLMAPIError("Gagal memanggil LLM") from last_err
+    raise LLMAPIError(
+        f"Gagal memanggil LLM setelah {max_retries} percobaan"
+    ) from last_err
