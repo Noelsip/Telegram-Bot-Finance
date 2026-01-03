@@ -13,7 +13,9 @@ from fastapi.routing import APIRoute
 from app.db import prisma, connect_db
 
 # Import routers
-from app.webhook import telegram_router, whatsapp_router
+from app.webhook import telegram_router
+# ✅ COMMENTED: WhatsApp not used yet
+# from app.webhook import whatsapp_router
 
 # Setup logging
 logging.basicConfig(
@@ -102,10 +104,7 @@ app = FastAPI(
 # ✅ Health check - always return 200 if app is running
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint - always returns 200 if app is running
-    Database status is informational only
-    """
+    """Health check endpoint - always returns 200 if app is running"""
     db_status = "unknown"
     user_count = 0
     
@@ -131,6 +130,7 @@ async def health_check():
         },
         status_code=200  # ✅ Always 200
     )
+
 # Root endpoint
 @app.get("/")
 async def root():
@@ -141,9 +141,11 @@ async def root():
         "port": os.getenv("PORT", "8000")
     }
 
-# Include routers
-app.include_router(telegram_router, tags=["Telegram"])  
-app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
+# ✅ Include only Telegram router
+app.include_router(telegram_router, tags=["Telegram"])
+
+# ✅ COMMENTED: WhatsApp router not used yet
+# app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
 
 @app.on_event("startup")
 async def log_routes():
