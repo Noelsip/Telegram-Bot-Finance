@@ -40,16 +40,20 @@ RUN python -m prisma generate
 # Copy application code
 COPY . .
 
+# ✅ Copy dan set permission untuk entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV PORT=8000
 
 # Create required directories
 RUN mkdir -p upload/receipts upload/temp exports asset
 
-# Railway akan set PORT environment variable
-ENV PORT=8000
+# Expose port (Railway akan override dengan dynamic port)
 EXPOSE $PORT
 
-# ✅ FIX: Gunakan sh -c untuk expand $PORT variable
-CMD sh -c "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"
+# ✅ FIX: Gunakan entrypoint script
+ENTRYPOINT ["/entrypoint.sh"]

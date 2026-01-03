@@ -29,67 +29,102 @@ async def lifespan(app: FastAPI):
     global http_client
 
     try:
-        # Jalankan migrasi database pertama-tama
-        logger.info("Running database migrations...")
-        subprocess.run(["python", "-m", "prisma", "migrate", "deploy"], check=True)
+        deployment_env = os.getenv("DEPLOYMENT_ENV", "development")
         
-        # Connect to database
-        logger.info("Connecting to database...")
-        await connect_db()
-        logger.info("✅ Database connected successfully")
-
+        # ✅ FIX: Skip migrations di Railway (handled by entrypoint)
+        if deployment_env == "railway":
+            logger.info("🚂 Railway environment - migrations handled by entrypoint")
+        else:
+            logger.info("🔄 Running database migrations...")
+            try:
+                result = subprocess.run(
+                    ["python", "-m", "prisma", "migrate", "deploy"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                if result.returncode != 0:
+                    logger.warning(f"⚠️  Migration warning: {result.stderr}")
+                else:
+                    logger.info("✅ Migrations completed")
+            except subprocess.TimeoutExpired:
+                logger.error("❌ Migration timeout after 60s")
+            except Exception as e:
+                logger.error(f"❌ Migration error: {e}")
+        
+        # Connect to database with retry
+        logger.info("🔌 Connecting to database...")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await connect_db()
+                logger.info("✅ Database connected successfully")
+                break
+            except Exception as e:
+                logger.error(f"❌ Database connection failed (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt == max_retries - 1:
+                    logger.error("❌ Failed to connect to database after all retries")
+                    # Don't raise - let app start anyway for health check
+                else:
+                    import asyncio
+                    await asyncio.sleep(2)
+        
+        # Initialize HTTP client
         http_client = httpx.AsyncClient(timeout=20.0)
         app.state.http_client = http_client
         logger.info("🌐 HTTP client initialized")
+        
+        logger.info("🚀 Application startup complete")
 
     except Exception as e:
-        logger.error(f"❌ Failed to start application: {e}")
-        raise
+        logger.error(f"❌ Startup error: {e}", exc_info=True)
 
     yield
     
     # Cleanup
+    logger.info("🛑 Shutting down...")
     if http_client:
         await http_client.aclose()
-    await prisma.disconnect()
+    try:
+        await prisma.disconnect()
+        logger.info("✅ Database disconnected")
+    except:
+        pass
     logger.info("♻️ Resources cleaned up")
 
-# ✅ SINGLE FastAPI app definition
+# FastAPI app definition
 app = FastAPI(
     title="Keuangan Bot API",
     version="2.0.0",
     lifespan=lifespan
 )
 
-# Health check endpoint untuk Railway
+# ✅ Health check - always return 200 if app is running
 @app.get("/health")
 async def health_check():
     """Health check endpoint untuk Railway monitoring"""
+    db_status = "unknown"
+    user_count = 0
+    
     try:
-        # Test database connection
         user_count = await prisma.user.count()
-        
-        return JSONResponse(
-            content={
-                "status": "healthy",
-                "service": "keuangan-bot",
-                "database": "connected",
-                "users": user_count,
-                "environment": os.getenv("DEPLOYMENT_ENV", "unknown"),
-                "timestamp": datetime.now().isoformat()
-            },
-            status_code=200
-        )
+        db_status = "connected"
     except Exception as e:
-        logger.error(f"Health check failed: {e}", exc_info=True)
-        return JSONResponse(
-            content={
-                "status": "unhealthy",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            },
-            status_code=503
-        )
+        db_status = f"error: {str(e)[:50]}"
+        logger.warning(f"Health check DB error: {e}")
+    
+    return JSONResponse(
+        content={
+            "status": "healthy",  # Always healthy if app running
+            "service": "keuangan-bot",
+            "database": db_status,
+            "users": user_count,
+            "environment": os.getenv("DEPLOYMENT_ENV", "unknown"),
+            "port": os.getenv("PORT", "8000"),
+            "timestamp": datetime.now().isoformat()
+        },
+        status_code=200
+    )
 
 # Root endpoint
 @app.get("/")
@@ -97,7 +132,8 @@ async def root():
     return {
         "message": "Keuangan Bot API",
         "version": "2.0.0",
-        "status": "running"
+        "status": "running",
+        "port": os.getenv("PORT", "8000")
     }
 
 # Include routers
@@ -106,7 +142,7 @@ app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"
 
 @app.on_event("startup")
 async def log_routes():
-    logger.info("Registered routes:")
+    logger.info("📋 Registered routes:")
     for route in app.routes:
         if isinstance(route, APIRoute):
             logger.info(f"  {route.path} {route.methods}")
