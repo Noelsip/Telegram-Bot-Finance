@@ -7,6 +7,8 @@ services:
       POSTGRES_USER: ${DB_USER:-keuangan_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-password_keuangan}
       POSTGRES_DB: ${DB_NAME:-keuangan_bot_db}
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +26,7 @@ services:
         condition: service_healthy
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DATABASE_URL=postgresql://${DB_USER:-keuangan_user}:${DB_PASSWORD:-password_keuangan}@db:5432/${DB_NAME:-keuangan_bot_db}
       - WORKER_MODE=test
     ports:
