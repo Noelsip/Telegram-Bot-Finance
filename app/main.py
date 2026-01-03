@@ -33,43 +33,39 @@ async def lifespan(app: FastAPI):
     try:
         deployment_env = os.getenv("DEPLOYMENT_ENV", "development")
         
-        # ✅ FIX: Skip migrations di Railway (handled by entrypoint)
-        if deployment_env == "railway":
-            logger.info("🚂 Railway environment - migrations handled by entrypoint")
-        else:
-            logger.info("🔄 Running database migrations...")
-            try:
-                result = subprocess.run(
-                    ["python", "-m", "prisma", "migrate", "deploy"],
-                    capture_output=True,
-                    text=True,
-                    timeout=60
-                )
-                if result.returncode != 0:
-                    logger.warning(f"⚠️  Migration warning: {result.stderr}")
-                else:
-                    logger.info("✅ Migrations completed")
-            except subprocess.TimeoutExpired:
-                logger.error("❌ Migration timeout after 60s")
-            except Exception as e:
-                logger.error(f"❌ Migration error: {e}")
+        # ✅ FIX: HAPUS skip logic - migrations handled by entrypoint
+        # Railway migrations sudah dihandle oleh entrypoint.sh
+        logger.info(f"🚂 Starting in {deployment_env} environment")
         
         # Connect to database with retry
         logger.info("🔌 Connecting to database...")
-        max_retries = 3
+        max_retries = 5  # ✅ Increase retries
+        retry_delay = 2  # seconds
+        
         for attempt in range(max_retries):
             try:
                 await connect_db()
                 logger.info("✅ Database connected successfully")
+                
+                # ✅ Verify tables exist
+                try:
+                    user_count = await prisma.user.count()
+                    logger.info(f"✅ Database schema verified - {user_count} users found")
+                except Exception as e:
+                    logger.error(f"❌ Database schema issue: {e}")
+                    raise
+                
                 break
+                
             except Exception as e:
                 logger.error(f"❌ Database connection failed (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt == max_retries - 1:
                     logger.error("❌ Failed to connect to database after all retries")
-                    # Don't raise - let app start anyway for health check
+                    raise
                 else:
                     import asyncio
-                    await asyncio.sleep(2)
+                    logger.info(f"⏳ Retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
         
         # Initialize HTTP client
         http_client = httpx.AsyncClient(timeout=20.0)
@@ -80,6 +76,7 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         logger.error(f"❌ Startup error: {e}", exc_info=True)
+        raise  # ✅ Raise error agar Railway restart service
 
     yield
     
@@ -93,7 +90,7 @@ async def lifespan(app: FastAPI):
     except:
         pass
     logger.info("♻️ Resources cleaned up")
-
+    
 # FastAPI app definition
 app = FastAPI(
     title="Keuangan Bot API",

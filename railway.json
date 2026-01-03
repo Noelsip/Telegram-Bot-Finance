@@ -10,6 +10,6 @@
     "restartPolicyMaxRetries": 10,
     "healthcheckPath": "/health",
     "healthcheckTimeout": 600,
-    "startCommand": "/entrypoint.sh"
+    "startCommand": "python -m prisma migrate deploy && /entrypoint.sh"
   }
 }
