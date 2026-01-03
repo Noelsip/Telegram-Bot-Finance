@@ -1,21 +1,18 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 import logging
-import subprocess
 import os
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
-import httpx
 from fastapi.routing import APIRoute
+import httpx
 
 # Import Prisma client
 from app.db import prisma, connect_db
 
 # Import routers
-from app.webhook import telegram_router
-# ✅ COMMENTED: WhatsApp not used yet
-# from app.webhook import whatsapp_router
+from app.webhook.telegram import router as telegram_router
 
 # Setup logging
 logging.basicConfig(
@@ -32,43 +29,31 @@ async def lifespan(app: FastAPI):
 
     try:
         deployment_env = os.getenv("DEPLOYMENT_ENV", "development")
-        
-        # ✅ FIX: HAPUS skip logic - migrations handled by entrypoint
-        # Railway migrations sudah dihandle oleh entrypoint.sh
         logger.info(f"🚂 Starting in {deployment_env} environment")
         
-        # Connect to database with retry
+        # Connect to database
         logger.info("🔌 Connecting to database...")
-        max_retries = 5  # ✅ Increase retries
-        retry_delay = 2  # seconds
+        max_retries = 5
         
         for attempt in range(max_retries):
             try:
                 await connect_db()
                 logger.info("✅ Database connected successfully")
                 
-                # ✅ Verify tables exist
-                try:
-                    user_count = await prisma.user.count()
-                    logger.info(f"✅ Database schema verified - {user_count} users found")
-                except Exception as e:
-                    logger.error(f"❌ Database schema issue: {e}")
-                    raise
-                
+                # Verify tables exist
+                user_count = await prisma.user.count()
+                logger.info(f"✅ Database schema verified - {user_count} users found")
                 break
                 
             except Exception as e:
                 logger.error(f"❌ Database connection failed (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt == max_retries - 1:
-                    logger.error("❌ Failed to connect to database after all retries")
                     raise
-                else:
-                    import asyncio
-                    logger.info(f"⏳ Retrying in {retry_delay}s...")
-                    await asyncio.sleep(retry_delay)
+                import asyncio
+                await asyncio.sleep(2)
         
         # Initialize HTTP client
-        http_client = httpx.AsyncClient(timeout=20.0)
+        http_client = httpx.AsyncClient(timeout=30.0)
         app.state.http_client = http_client
         logger.info("🌐 HTTP client initialized")
         
@@ -76,7 +61,7 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         logger.error(f"❌ Startup error: {e}", exc_info=True)
-        raise  # ✅ Raise error agar Railway restart service
+        raise
 
     yield
     
@@ -89,44 +74,35 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Database disconnected")
     except:
         pass
-    logger.info("♻️ Resources cleaned up")
-    
-# FastAPI app definition
+
+# FastAPI app
 app = FastAPI(
     title="Keuangan Bot API",
     version="2.0.0",
     lifespan=lifespan
 )
 
-# ✅ Health check - always return 200 if app is running
+# Health check
 @app.get("/health")
 async def health_check():
-    """Health check endpoint - always returns 200 if app is running"""
     db_status = "unknown"
     user_count = 0
     
-    # Try database, but don't fail health check if DB unavailable
     try:
         user_count = await prisma.user.count()
         db_status = "connected"
     except Exception as e:
-        db_status = "disconnected"
-        logger.warning(f"Health check: DB not available - {e}")
+        db_status = f"error: {str(e)}"
     
-    # ✅ ALWAYS return 200 - Railway needs this to pass health check
-    return JSONResponse(
-        content={
-            "status": "healthy",  # App is running = healthy
-            "service": "keuangan-bot",
-            "version": "2.0.0",
-            "database": db_status,
-            "users": user_count,
-            "environment": os.getenv("DEPLOYMENT_ENV", "unknown"),
-            "port": os.getenv("PORT", "8000"),
-            "timestamp": datetime.now().isoformat()
-        },
-        status_code=200  # ✅ Always 200
-    )
+    return {
+        "status": "healthy",
+        "service": "keuangan-bot",
+        "version": "2.0.0",
+        "database": db_status,
+        "users": user_count,
+        "environment": os.getenv("DEPLOYMENT_ENV", "unknown"),
+        "port": os.getenv("PORT", "8000")
+    }
 
 # Root endpoint
 @app.get("/")
@@ -134,52 +110,32 @@ async def root():
     return {
         "message": "Keuangan Bot API",
         "version": "2.0.0",
-        "status": "running",
-        "port": os.getenv("PORT", "8000")
+        "status": "running"
     }
 
-# ✅ Include only Telegram router
-app.include_router(telegram_router, tags=["Telegram"])
+# ✅ FIX: Include Telegram router with correct prefix
+app.include_router(telegram_router, prefix="/webhook", tags=["Telegram"])
 
-# ✅ COMMENTED: WhatsApp router not used yet
-# app.include_router(whatsapp_router, prefix="/webhook/whatsapp", tags=["WhatsApp"])
-
+# Log registered routes on startup
 @app.on_event("startup")
 async def log_routes():
     logger.info("📋 Registered routes:")
     for route in app.routes:
         if isinstance(route, APIRoute):
-            logger.info(f"  {route.path} {route.methods}")
+            logger.info(f"  {route.methods} {route.path}")
 
+# Exception handlers
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException): 
-    logger.warning(
-        f"HTTP Exception: {exc.status_code} - {exc.detail} - Path: {request.url.path}"
-    )
+async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": True,
-            "status_code": exc.status_code,
-            "message": exc.detail,
-            "path": request.url.path,
-            "timestamp": datetime.now().isoformat(),
-        },
+        content={"error": True, "message": exc.detail}
     )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(
-        f"Unhandled Exception: {str(exc)} - Path: {request.url.path}",
-        exc_info=True,
-    )
+    logger.error(f"Unhandled error: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={
-            "error": True,
-            "status_code": 500,
-            "message": "Internal Server Error",
-            "path": request.url.path,
-            "timestamp": datetime.now().isoformat(),
-        },
+        content={"error": True, "message": "Internal Server Error"}
     )

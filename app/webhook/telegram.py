@@ -1,5 +1,6 @@
 import os
 import httpx
+import logging
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
 from app.config import BOT_TOKEN, TELEGRAM_API_URL
@@ -34,7 +35,8 @@ HELP_TEXT = (
     "• /export_tahunan – kirim file Excel 365 hari terakhir\n"
 )
 
-router = APIRouter(tags=["Telegram"])
+router = APIRouter()
+logger = logging.getLogger(__name__)
 
 async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClient):
     try:
@@ -498,7 +500,7 @@ async def process_receipt_background(
             client,
         )
 
-@router.post("/tg_webhook")
+@router.post("/telegram")
 async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()
