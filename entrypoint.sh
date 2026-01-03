@@ -14,13 +14,17 @@ fi
 echo "   Environment: ${DEPLOYMENT_ENV:-production}"
 echo "   Database: ${DATABASE_URL:0:30}..."
 
-# Skip migrations di Railway (auto-handled)
-if [ "$DEPLOYMENT_ENV" = "railway" ]; then
-    echo "⏭️  Skipping manual migrations (Railway auto-runs)"
+# ✅ FIX: ALWAYS run migrations (Railway TIDAK auto-run)
+echo "🔄 Running Prisma migrations..."
+if python -m prisma migrate deploy 2>&1; then
+    echo "✅ Migrations completed successfully"
 else
-    echo "🔄 Running Prisma migrations..."
-    python -m prisma migrate deploy 2>&1 || echo "⚠️  Migration warning (may already be applied)"
+    echo "⚠️  Migration failed or already applied - continuing anyway"
 fi
+
+# Generate Prisma client (ensure latest schema)
+echo "🔧 Generating Prisma client..."
+python -m prisma generate
 
 # Start application - Railway akan inject $PORT
 echo "🚀 Starting Uvicorn on 0.0.0.0:$PORT"
