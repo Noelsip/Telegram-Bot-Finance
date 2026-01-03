@@ -1,17 +1,22 @@
 {
   "name": "keuangan-prisma",
   "version": "1.1.0",
-  "private": true,
+  "description": "Prisma ORM untuk Bot Finance",
   "scripts": {
-    "prisma:generate": "npx prisma@6.15.0 generate",
-    "prisma:migrate:dev": "npx prisma migrate dev --name init",
-    "prisma:migrate:deploy": "npx prisma migrate deploy",
-    "prisma:studio": "npx prisma studio --browser"
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "prisma:push": "prisma db push"
+  },
+  "keywords": [
+    "prisma",
+    "bot",
+    "finance"
+  ],
+  "dependencies": {
+    "prisma": "5.4.2"
   },
   "devDependencies": {
-    "prisma": "^6.15.0"
-  },
-  "dependencies": {
-    "@prisma/client": "^6.15.0"
+    "@prisma/client": "5.4.2"
   }
 }
