@@ -17,15 +17,17 @@ from app.services import (
 )
 
 HELP_TEXT = (
-    "Selamat datang di Slip Ku \n\n"
+    "Selamat datang di Slip Ku 💰\n\n"
     "Aku bisa membantu kamu:\n"
     "• Mencatat pemasukan dan pengeluaran dari chat biasa\n"
+    "• Mencatat MULTIPLE transaksi dalam satu pesan\n"
     "• Melihat ringkasan transaksi harian & mingguan\n"
     "• Mengekspor riwayat transaksi mingguan, bulanan, dan tahunan ke Excel\n\n"
     "Contoh pesan transaksi:\n"
     "• makan siang 25rb\n"
     "• gaji bulan ini masuk 5jt\n"
-    "• transfer ke teman 100rb\n\n"
+    "• transfer ke teman 100rb\n"
+    "• hari ini beli makan 50rb, kemarin beli rokok 20rb, gajian 500rb ✨\n\n"
     "Perintah:\n"
     "• /start atau /help – lihat pesan ini\n"
     "• /history_harian – ringkasan transaksi hari ini\n"
@@ -39,6 +41,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClient):
+    """Send text message to Telegram user"""
     try:
         url = f"{TELEGRAM_API_URL}/bot{BOT_TOKEN}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
@@ -46,7 +49,26 @@ async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClie
         response = await client.post(url, json=payload)
         response.raise_for_status()
     except Exception as e:
-        print(f"Error sending Telegram message: {str(e)}")
+        logger.error(f"Error sending Telegram message: {e}", exc_info=True)
+
+
+async def send_telegram_document(
+    chat_id: int,
+    file_path: str,
+    caption: str,
+    client: httpx.AsyncClient,
+):
+    """Send document file to Telegram user"""
+    try:
+        url = f"{TELEGRAM_API_URL}/bot{BOT_TOKEN}/sendDocument"
+        with open(file_path, "rb") as f:
+            files = {"document": ("report.xlsx", f)}
+            data = {"chat_id": chat_id, "caption": caption}
+            response = await client.post(url, data=data, files=files)
+            response.raise_for_status()
+    except Exception as e:
+        logger.error(f"Error sending Telegram document: {e}", exc_info=True)
+
 
 def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None]:
     """
@@ -71,7 +93,7 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
     def has_any(phrases: list[str]) -> bool:
         return any(p in s for p in phrases)
 
-    #  HELP 
+    # ========== HELP ==========
     help_phrases = [
         "help",
         "bantuan",
@@ -104,7 +126,7 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
     if s.startswith("start") or has_any(help_phrases):
         return "help", None, None
 
-    # PERIODE 
+    # ========== PERIODE ==========
     period: str | None = None
 
     # Hari ini
@@ -184,6 +206,7 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
     elif has_any(year_phrases) or has_any(all_time_phrases):
         period = "year"
 
+    # ========== DIRECTION (Income/Expense) ==========
     direction: str | None = None
 
     income_words = [
@@ -215,7 +238,7 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
     elif has_any(expense_words):
         direction = "Pengeluaran"
 
-    # HISTORY 
+    # ========== HISTORY ==========
     history_phrases = [
         "history",
         "histori",
@@ -252,7 +275,7 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
             period = "today"
         return "history", period, direction
 
-    # EXPORT / LAPORAN / EXCEL 
+    # ========== EXPORT / LAPORAN / EXCEL ==========
     export_phrases = [
         "export",
         "ekspor",
@@ -280,27 +303,31 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
 
     return None, None, None
 
+
 async def handle_text_message(
     user_id: int,
     chat_id: int,
     text: str,
     client: httpx.AsyncClient,
 ):
+    """
+    Handle text message - supports commands and multiple transactions
+    """
     try:
         clean = text.strip()
         intent, period, direction = detect_special_intent(clean)
 
-        # 1) Command help / start
+        # ========== 1) HELP COMMAND ==========
         if intent == "help":
             await send_telegram_message(chat_id, HELP_TEXT, client)
             return
  
-        # 2) History harian
-        if intent == "history" and period == "today":
+        # ========== 2) HISTORY COMMANDS ==========
+        if intent == "history":
             txs, label = await get_transactions_for_period(
                 prisma=prisma,
                 user_id=user_id,
-                period="today",
+                period=period or "today",
                 direction=direction,
             )
 
@@ -308,117 +335,93 @@ async def handle_text_message(
             await send_telegram_message(chat_id, summary, client)
             return
 
-        # 3) History mingguan
-        if intent == "history" and period == "week":
-            txs, label = await get_transactions_for_period(
-                prisma=prisma,
-                user_id=user_id,
-                period="week",
-                direction=direction,
-            )
-
-            summary = build_history_summary(label, txs)
-            await send_telegram_message(chat_id, summary, client)
-            return
-
-        # 4) Export Excel mingguan
-        if intent == "export" and period == "week":
+        # ========== 3) EXPORT COMMANDS ==========
+        if intent == "export":
             file_path, file_name = await create_excel_report(
                 prisma=prisma,
                 user_id=user_id,
-                period="week",
+                period=period or "month",
             )
+            
             if not file_path:
+                period_text = {
+                    "week": "7 hari terakhir",
+                    "month": "30 hari terakhir",
+                    "year": "365 hari terakhir"
+                }.get(period, "periode ini")
+                
                 await send_telegram_message(
                     chat_id,
-                    "Belum ada transaksi dalam 7 hari terakhir, tidak ada file yang bisa diekspor.",
+                    f"Belum ada transaksi dalam {period_text}, tidak ada file yang bisa diekspor.",
                     client,
                 )
                 return
 
-            await send_telegram_document(
-                chat_id,
-                file_path,
-                "Laporan transaksi mingguan (7 hari terakhir)",
-                client,
-            )
-            return
-
-        # 5) Export Excel bulanan
-        if intent == "export" and period == "month":
-            file_path, file_name = await create_excel_report(
-                prisma=prisma,
-                user_id=user_id,
-                period="month",
-            )
-            if not file_path:
-                await send_telegram_message(
-                    chat_id,
-                    "Belum ada transaksi dalam 30 hari terakhir, tidak ada file yang bisa diekspor.",
-                    client,
-                )
-                return
+            caption_text = {
+                "week": "Laporan transaksi mingguan (7 hari terakhir)",
+                "month": "Laporan transaksi bulanan (30 hari terakhir)",
+                "year": "Laporan transaksi tahunan (365 hari terakhir)"
+            }.get(period, "Laporan transaksi")
 
             await send_telegram_document(
                 chat_id,
                 file_path,
-                "Laporan transaksi bulanan (30 hari terakhir)",
+                caption_text,
                 client,
             )
             return
 
-        # 6) Export Excel tahunan
-        if intent == "export" and period == "year":
-            file_path, file_name = await create_excel_report(
-                prisma=prisma,
-                user_id=user_id,
-                period="year",
-            )
-            if not file_path:
-                await send_telegram_message(
-                    chat_id,
-                    "Belum ada transaksi dalam 365 hari terakhir, tidak ada file yang bisa diekspor.",
-                    client,
-                )
-                return
-
-            await send_telegram_document(
-                chat_id,
-                file_path,
-                "Laporan transaksi tahunan (365 hari terakhir)",
-                client,
-            )
-            return
-
-        # 7) Bukan command -> anggap sebagai teks transaksi biasa
-        result = await process_text_message(
+        # ========== 4) PROCESS AS TRANSACTION(S) ==========
+        results = await process_text_message(
             user_id=user_id,
             text=text,
             source="telegram",
         )
 
-        if not result:
+        if not results:
             await send_telegram_message(
                 chat_id,
-                "Maaf, aku tidak bisa memahami pesan ini sebagai transaksi.",
+                "❌ Maaf, aku tidak bisa memahami pesan ini sebagai transaksi.",
                 client,
             )
             return
 
-        amount = result.get("amount")
-        category = result.get("category")
-        direction = result.get("direction")
-        intent = result.get("intent")
-
-        lines = ["Transaksi berhasil dicatat."]
-        if amount is not None:
-            lines.append(f"• Jumlah: Rp {amount:,.0f}")
-        if category:
-            lines.append(f"• Kategori: {category}")
-        if direction:
-            lines.append(f"• Tipe: {direction}")
-        if intent:
-            lines.append(f"• Intent: {intent}")
+        # ========== HANDLE MULTIPLE TRANSACTIONS RESPONSE ==========
+        if len(results) == 1:
+            # Single transaction response
+            tx = results[0]
+            lines = ["✅ Transaksi berhasil dicatat."]
+            
+            if tx.get("amount") is not None:
+                lines.append(f"• Jumlah: Rp {tx['amount']:,.0f}")
+            if tx.get("category"):
+                lines.append(f"• Kategori: {tx['category']}")
+            if tx.get("direction"):
+                lines.append(f"• Tipe: {tx['direction']}")
+            
+        else:
+            # Multiple transactions response
+            lines = [f"✅ Berhasil mencatat {len(results)} transaksi:\n"]
+            
+            total_income = sum(tx.get("amount", 0) for tx in results if tx.get("direction") == "income")
+            total_expense = sum(tx.get("amount", 0) for tx in results if tx.get("direction") == "expense")
+            
+            for i, tx in enumerate(results, 1):
+                emoji = "💰" if tx.get("direction") == "income" else "💸"
+                amount = tx.get("amount", 0)
+                category = tx.get("category", "N/A")
+                note = tx.get("note", "")
+                
+                lines.append(f"{i}. {emoji} Rp {amount:,.0f} - {category}")
+                if note and len(note) > 0:
+                    lines.append(f"   📝 {note[:50]}")
+            
+            # Add summary
+            lines.append("\n📊 Ringkasan:")
+            if total_income > 0:
+                lines.append(f"💰 Pemasukan: Rp {total_income:,.0f}")
+            if total_expense > 0:
+                lines.append(f"💸 Pengeluaran: Rp {total_expense:,.0f}")
 
         await send_telegram_message(
             chat_id,
@@ -427,28 +430,13 @@ async def handle_text_message(
         )
 
     except Exception as e:
-        print(f"Error in handle_text_message: {e}")
+        logger.error(f"Error in handle_text_message: {e}", exc_info=True)
         await send_telegram_message(
             chat_id,
-            "Terjadi error saat memproses transaksi. Coba lagi nanti.",
+            "❌ Terjadi error saat memproses transaksi. Coba lagi nanti.",
             client,
         )
 
-async def send_telegram_document(
-    chat_id: int,
-    file_path: str,
-    caption: str,
-    client: httpx.AsyncClient,
-):
-    try:
-        url = f"{TELEGRAM_API_URL}/bot{BOT_TOKEN}/sendDocument"
-        with open(file_path, "rb") as f:
-            files = {"document": ("report.xlsx", f)}
-            data = {"chat_id": chat_id, "caption": caption}
-            response = await client.post(url, data=data, files=files)
-            response.raise_for_status()
-    except Exception as e:
-        print(f"Error sending Telegram document: {str(e)}")
 
 async def process_receipt_background(
     user_id: int,
@@ -469,7 +457,7 @@ async def process_receipt_background(
         if not result:
             await send_telegram_message(
                 chat_id,
-                "Struk sudah diproses, tapi aku belum bisa mengenali transaksinya. Coba foto yang lebih jelas ya.",
+                "❌ Struk sudah diproses, tapi aku belum bisa mengenali transaksinya. Coba foto yang lebih jelas ya.",
                 client,
             )
             return
@@ -493,24 +481,26 @@ async def process_receipt_background(
         )
 
     except Exception as e:
-        print(f"Error in process_receipt_background: {e}")
+        logger.error(f"Error in process_receipt_background: {e}", exc_info=True)
         await send_telegram_message(
             chat_id,
-            "Terjadi error saat memproses struk. Coba lagi nanti.",
+            "❌ Terjadi error saat memproses struk. Coba lagi nanti.",
             client,
         )
 
+
 @router.post("/telegram")
 async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Main webhook endpoint for Telegram"""
     try:
         body = await request.json()
-
         client: httpx.AsyncClient = request.app.state.http_client
 
         message = body.get("message")
         if not message:
             raise HTTPException(status_code=400, detail="No message in update")
 
+        # Extract message data
         from_data = message.get("from", {})
         user_id = from_data.get("id")
         username = from_data.get("username")
@@ -521,6 +511,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
         photos = message.get("photo")
         document = message.get("document")
 
+        # Get or create user
         user = await user_service.get_or_create_user(
             prisma=prisma,
             user_id=user_id,
@@ -529,6 +520,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             source="telegram"
         )
         
+        # ========== HANDLE DOCUMENT ==========
         if document:
             file_id = document.get("file_id")
             file_name = document.get("file_name", "document")
@@ -547,11 +539,9 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
                 file_size=media_info["file_size"]
             )
             
-            # Balasan cepat
-            await send_telegram_message(chat_id, "Dokumen diterima. Sedang diproses.", client)
-            print(f"Document processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
+            await send_telegram_message(chat_id, "📄 Dokumen diterima. Sedang diproses...", client)
+            logger.info(f"Document processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
 
-            # Proses OCR + transaksi di background lalu kirim ringkasan ke user
             background_tasks.add_task(
                 process_receipt_background,
                 user.id,
@@ -563,6 +553,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             
             return JSONResponse(status_code=200, content={"status": "document_processed"})
         
+        # ========== HANDLE PHOTO ==========
         if photos:
             highest = photos[-1]
             file_id = highest.get("file_id")
@@ -581,11 +572,9 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
                 file_size=media_info["file_size"]
             )
 
-            # Balasan cepat
-            await send_telegram_message(chat_id, "Foto struk diterima. Sedang diproses.", client)
-            print(f"Photo processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
+            await send_telegram_message(chat_id, "📸 Foto struk diterima. Sedang diproses...", client)
+            logger.info(f"Photo processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
 
-            # Proses OCR + transaksi di background lalu kirim ringkasan ke user
             background_tasks.add_task(
                 process_receipt_background,
                 user.id,
@@ -597,10 +586,13 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
 
             return JSONResponse(status_code=200, content={"status": "photo_processed"})
         
+        # ========== HANDLE TEXT MESSAGE ==========
         if text:
-            print(f"Text message - User: {user.id}, Message: {message_id}, Content: {text[:50]}")
+            logger.info(f"Text message - User: {user.id}, Message: {message_id}, Content: {text[:100]}")
 
             intent, period, direction = detect_special_intent(text)
+            
+            # Process commands immediately (no background)
             if intent in ("help", "history", "export"):
                 await handle_text_message(
                     user.id,
@@ -608,10 +600,10 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
                     text,
                     client,
                 )
-
                 return JSONResponse(status_code=200, content={"status": "command_processed"})
 
-            await send_telegram_message(chat_id, "Pesan diterima. Sedang diproses.", client)
+            # Process transactions in background
+            await send_telegram_message(chat_id, "💬 Pesan diterima. Sedang diproses...", client)
 
             background_tasks.add_task(
                 handle_text_message,
@@ -626,7 +618,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
         return JSONResponse(status_code=200, content={"status": "ignored"})
 
     except Exception as e:
-        print(f"Telegram Webhook Error: {str(e)}")
+        logger.error(f"Telegram Webhook Error: {e}", exc_info=True)
         import traceback
         traceback.print_exc()
 

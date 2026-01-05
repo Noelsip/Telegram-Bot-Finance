@@ -7,276 +7,331 @@ logger = logging.getLogger(__name__)
 
 class ImagePreprocessor:
     """
-    Image preprocessor untuk OCR
+    Image preprocessor untuk OCR - OPTIMIZED untuk struk
     
-    Pipeline:
-    - Resize (jika terlalu besar)
-    - Grayscale conversion
-    - Deskew (Luruskan gambar miring)
-    - Denoise (hilangkan noise)
-    - Binarization (threshold hitam-putih)
-    - Morphological operations (opsional)
+    Pipeline adaptif:
+    - Auto-detect quality
+    - Dynamic preprocessing based on image condition
+    - Multiple enhancement techniques
     """
     
     def __init__(
         self,
-        max_width: int = 1920,
-        max_height: int = 1080,
+        target_height: int = 1600,  # ✅ INCREASED untuk detail lebih baik
         auto_deskew: bool = True,
         denoise: bool = True,
-        denoise_strength: int = 7,
-        use_clahe: bool = True,
-        clahe_clip_limit: float = 2.0,
-        clahe_tile_size: int = 8,
-        apply_sharpen: bool = True,
-        enable_binarize: bool = False,
-        enable_morphology: bool = False
+        aggressive_mode: bool = False  # ✅ NEW: Mode agresif untuk struk buruk
     ):
-        """
-        Initialize preprocessor dengan parameter yang diberikan.
-        
-        Args:
-            max_width (int): Maksimal lebar gambar.
-            max_height (int): Maksimal tinggi gambar.
-            auto_deskew (bool): Apakah melakukan deskewing.
-            denoise (bool): Apakah melakukan denoising.
-        """
-        self.max_width = max_width
-        self.max_height = max_height
+        self.target_height = target_height
         self.auto_deskew = auto_deskew
         self.denoise = denoise
-        self.denoise_strength = denoise_strength
-        self.use_clahe = use_clahe
-        self.clahe_clip_limit = clahe_clip_limit
-        self.clahe_tile_size = clahe_tile_size
-        self.apply_sharpen = apply_sharpen
-        self.enable_binarize = enable_binarize
-        self.enable_morphology = enable_morphology
+        self.aggressive_mode = aggressive_mode
         
     def preprocess(self, img: np.ndarray) -> np.ndarray:
         """
-        Preprocess image untuk OCR(main pipeline).
-        
-        Args:
-            img (np.ndarray): Input image dalam format opencv (BGR).
-            
-        Returns:
-            np.ndarray: Preprocessed image siap untuk OCR.
+        Adaptive preprocessing pipeline
         """
-        logger.info(f"Starting preprocessing, input shape: {img.shape}")
+        logger.info(f"Starting adaptive preprocessing, input shape: {img.shape}")
         
-        # Resize jika terlalu besar
-        img = self._resize(img) 
-        logger.info(f"After resize, shape: {img.shape}")
+        # 1. Detect image quality
+        quality = self._assess_quality(img)
+        logger.info(f"Image quality assessment: {quality}")
         
-        # Convert ke grayscale
+        # 2. Adaptive resize (upscale kecil, downscale besar)
+        img = self._adaptive_resize(img)
+        logger.info(f"After adaptive resize: {img.shape}")
+        
+        # 3. Convert to grayscale
         gray = self._to_grayscale(img)
-        logger.info(f"After grayscale conversion, shape: {gray.shape}")
         
-        if self.use_clahe:
-            gray = self._enhance_contrast(gray)
-            logger.info("After contrast enhancement (CLAHE)")
-
-        if self.apply_sharpen:
+        # 4. Conditional enhancement based on quality
+        if quality['is_dark']:
+            logger.info("Applying brightness enhancement")
+            gray = self._enhance_brightness(gray)
+        
+        if quality['is_blurry']:
+            logger.info("Applying sharpening")
             gray = self._sharpen(gray)
-            logger.info("After sharpening")
         
-        # Deskewing(luruskan)
+        if quality['low_contrast']:
+            logger.info("Applying contrast enhancement (CLAHE)")
+            gray = self._enhance_contrast(gray)
+        
+        # 5. Deskewing
         if self.auto_deskew:
             gray = self._deskew(gray)
             logger.info("After deskewing")
-            
-        # Denoising
+        
+        # 6. Denoising
         if self.denoise:
-            gray = self._denoise(gray)
+            gray = self._denoise(gray, strength=10 if quality['is_noisy'] else 7)
             logger.info("After denoising")
         
-        # Binarization (opsional)
-        if self.enable_binarize:
-            binary = self._binarize(gray)
-            logger.info("After binarization")
-        else:
-            binary = gray
-            logger.info("Skip binarization (using grayscale image)")
+        # 7. Adaptive binarization
+        binary = self._adaptive_binarize(gray)
+        logger.info("After adaptive binarization")
         
-        # Morphological operations (clean up, opsional)
-        if self.enable_morphology and self.enable_binarize:
+        # 8. Morphological cleaning (optional)
+        if self.aggressive_mode or quality['needs_cleanup']:
             result = self._morphology(binary)
             logger.info("After morphological operations")
         else:
             result = binary
-            logger.info("Skip morphology (using pre-binarization image)")
         
         logger.info("Preprocessing completed")
-        
         return result
     
-    def _resize(self, img: np.ndarray) -> np.ndarray:
+    def _assess_quality(self, img: np.ndarray) -> dict:
         """
-        Resize image jika terlalu besar ATAU terlalu kecil.
-        Upscale gambar kecil untuk OCR yang lebih baik.
+        Assess image quality untuk menentukan preprocessing strategy
         """
-        MIN_HEIGHT = 800  # Minimum height untuk OCR yang baik
+        gray = self._to_grayscale(img) if len(img.shape) == 3 else img
+        
+        # Check brightness
+        mean_brightness = np.mean(gray)
+        is_dark = mean_brightness < 100
+        is_bright = mean_brightness > 180
+        
+        # Check contrast
+        contrast = gray.std()
+        low_contrast = contrast < 40
+        
+        # Check blur (Laplacian variance)
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+        blur_score = laplacian.var()
+        is_blurry = blur_score < 100
+        
+        # Check noise (high frequency content)
+        noise_score = np.mean(np.abs(cv2.Sobel(gray, cv2.CV_64F, 1, 1)))
+        is_noisy = noise_score > 50
+        
+        return {
+            'is_dark': is_dark,
+            'is_bright': is_bright,
+            'low_contrast': low_contrast,
+            'is_blurry': is_blurry,
+            'is_noisy': is_noisy,
+            'needs_cleanup': is_noisy or low_contrast,
+            'mean_brightness': mean_brightness,
+            'contrast': contrast,
+            'blur_score': blur_score
+        }
+    
+    def _adaptive_resize(self, img: np.ndarray) -> np.ndarray:
+        """
+        Adaptive resize - upscale kecil, downscale besar
+        Target: consistent height untuk OCR optimal
+        """
         h, w = img.shape[:2]
         
-        # UPSCALE jika gambar terlalu kecil
-        if h < MIN_HEIGHT:
-            scale = MIN_HEIGHT / h
-            new_w = int(w * scale)
-            new_h = MIN_HEIGHT
-            logger.info(f" Upscaling small image from {w}x{h} to {new_w}x{new_h}")
+        # Calculate scale based on target height
+        scale = self.target_height / h
+        new_w = int(w * scale)
+        new_h = self.target_height
+        
+        # Upscale (for small images) - use CUBIC interpolation
+        if scale > 1.0:
+            logger.info(f"Upscaling from {w}x{h} to {new_w}x{new_h}")
             return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
         
-        # DOWNSCALE jika gambar terlalu besar
-        if w <= self.max_width and h <= self.max_height:
-            return img
+        # Downscale (for large images) - use AREA interpolation
+        elif scale < 1.0:
+            logger.info(f"Downscaling from {w}x{h} to {new_w}x{new_h}")
+            return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
         
-        # Kalkulasi scale ratio
-        scale = min(self.max_width / w, self.max_height / h)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        
-        logger.info(f" Downscaling large image from {w}x{h} to {new_w}x{new_h}")
-        resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-        return resized_img
-
+        return img
+    
     def _to_grayscale(self, img: np.ndarray) -> np.ndarray:
-        """
-        Convert image ke grayscale
-        """
+        """Convert to grayscale"""
         if len(img.shape) == 2:
             return img
+        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    def _enhance_brightness(self, img: np.ndarray) -> np.ndarray:
+        """
+        Enhance brightness untuk gambar gelap
+        """
+        # Gamma correction
+        gamma = 1.5
+        inv_gamma = 1.0 / gamma
+        table = np.array([((i / 255.0) ** inv_gamma) * 255
+                         for i in np.arange(0, 256)]).astype("uint8")
         
-        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        return gray_img
-
-    def _enhance_contrast(self, img: np.ndarray) -> np.ndarray:
-        clahe = cv2.createCLAHE(
-            clipLimit=self.clahe_clip_limit,
-            tileGridSize=(self.clahe_tile_size, self.clahe_tile_size)
-        )
-        
-        return clahe.apply(img)
-
+        return cv2.LUT(img, table)
+    
     def _sharpen(self, img: np.ndarray) -> np.ndarray:
-        kernel = np.array([
-            [0, -1, 0],
-            [-1, 5, -1],
-            [0, -1, 0]
-        ], dtype=np.float32)
-        return cv2.filter2D(img, -1, kernel)
+        """
+        Sharpen untuk gambar blur
+        """
+        # Unsharp masking
+        gaussian = cv2.GaussianBlur(img, (0, 0), 2.0)
+        sharpened = cv2.addWeighted(img, 1.5, gaussian, -0.5, 0)
+        return sharpened
+    
+    def _enhance_contrast(self, img: np.ndarray) -> np.ndarray:
+        """
+        CLAHE untuk low contrast images
+        """
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        return clahe.apply(img)
     
     def _deskew(self, img: np.ndarray) -> np.ndarray:
         """
-        Auto-detext dan fix skew(gambar miring)
-
-        method: hough line transform
-        - detect lines di image
-        - calculate angle
-        - rotate image
+        Auto-detect dan fix skew
+        Improved: lebih robust untuk berbagai kondisi
         """
-        # Detect edges
+        # Try edge detection
         edges = cv2.Canny(img, 50, 150, apertureSize=3)
         
-        # Detect lines menggunakan Hough Transform
-        lines = cv2.HoughLines(edges, 1, np.pi / 180, 200)
+        # Detect lines
+        lines = cv2.HoughLinesP(
+            edges, 
+            1, 
+            np.pi / 180, 
+            threshold=100,
+            minLineLength=img.shape[1] // 4,
+            maxLineGap=20
+        )
         
-        if lines is None:
+        if lines is None or len(lines) < 5:
             return img
         
-        # calculasi median angle dari semua line
+        # Calculate angles
         angles = []
         for line in lines:
-            rho, theta = line[0]
-            angle = (theta * 180 / np.pi) - 90
-            angles.append(angle)
+            x1, y1, x2, y2 = line[0]
+            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
             
-        if not angles:
-            return img
+            # Normalize angle to [-45, 45]
+            if angle < -45:
+                angle = 90 + angle
+            elif angle > 45:
+                angle = angle - 90
+            
+            angles.append(angle)
         
-        # median angle
+        # Median angle
         median_angle = np.median(angles)
         
-        # skip jika sudah lurus
+        # Skip if already straight
         if abs(median_angle) < 0.5:
             return img
         
-        # Rotate image untuk deskew
+        # Rotate
         h, w = img.shape[:2]
         center = (w // 2, h // 2)
-        
-        # rotation matrix
         M = cv2.getRotationMatrix2D(center, median_angle, 1.0)
         
-        # apply rotasi dengan white background
         rotated = cv2.warpAffine(
-            img, M, (w, h), 
+            img, M, (w, h),
             flags=cv2.INTER_CUBIC,
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=255
         )
         
-        logger.debug(f"Deskew angle: {median_angle:.2f}")
+        logger.debug(f"Deskew angle: {median_angle:.2f}°")
         return rotated
     
-    def _denoise(self, img: np.ndarray) -> np.ndarray:
+    def _denoise(self, img: np.ndarray, strength: int = 7) -> np.ndarray:
         """
-        Remove noise dari image
-
-        metode: Non-local Means Denoising
+        Advanced denoising
         """
-        
+        # Non-local Means Denoising
         denoised = cv2.fastNlMeansDenoising(
             img,
-            h=self.denoise_strength,
+            h=strength,
             templateWindowSize=7,
             searchWindowSize=21
         )
         return denoised
     
-    def _binarize(self, img: np.ndarray) -> np.ndarray:
-        # Adaptive Gaussian thresholding
+    def _adaptive_binarize(self, img: np.ndarray) -> np.ndarray:
+        """
+        Adaptive binarization - try multiple methods and choose best
+        """
+        methods = []
+        
+        # Method 1: Adaptive Gaussian
         gaussian = cv2.adaptiveThreshold(
-            img,
-            255,
+            img, 255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY,
             blockSize=15,
-            C=3,
+            C=3
         )
-
-        # Otsu's method (cocok untuk pencahayaan cukup merata)
+        methods.append(('gaussian', gaussian))
+        
+        # Method 2: Otsu's
         _, otsu = cv2.threshold(
-            img,
-            0,
-            255,
-            cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+            img, 0, 255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
-
-        def foreground_ratio(binary: np.ndarray) -> float:
-            return float(cv2.countNonZero(binary)) / float(binary.size)
-
-        ratio_gauss = foreground_ratio(gaussian)
-        ratio_otsu = foreground_ratio(otsu)
-
-        # Pilih hasil dengan rasio foreground yang "sehat"
-        if 0.15 < ratio_gauss < 0.85:
-            return gaussian
-        if 0.15 < ratio_otsu < 0.85:
-            return otsu
-
-        # Fallback: gunakan Gaussian sebagai default
+        methods.append(('otsu', otsu))
+        
+        # Method 3: Adaptive Mean
+        mean_adaptive = cv2.adaptiveThreshold(
+            img, 255,
+            cv2.ADAPTIVE_THRESH_MEAN_C,
+            cv2.THRESH_BINARY,
+            blockSize=15,
+            C=3
+        )
+        methods.append(('mean', mean_adaptive))
+        
+        # Method 4: Sauvola (via local mean/std)
+        sauvola = self._sauvola_threshold(img)
+        methods.append(('sauvola', sauvola))
+        
+        # Choose best based on foreground ratio
+        best_method = None
+        best_score = float('inf')
+        
+        for name, binary in methods:
+            ratio = self._foreground_ratio(binary)
+            
+            # Ideal ratio: 15-40% (text on white background)
+            score = abs(ratio - 0.275)  # Target 27.5%
+            
+            if score < best_score and 0.10 < ratio < 0.50:
+                best_score = score
+                best_method = (name, binary)
+        
+        if best_method:
+            logger.debug(f"Best binarization method: {best_method[0]}")
+            return best_method[1]
+        
+        # Fallback: Gaussian
         return gaussian
-     
+    
+    def _sauvola_threshold(self, img: np.ndarray, window_size: int = 15, k: float = 0.2) -> np.ndarray:
+        """
+        Sauvola's binarization - good for varying illumination
+        """
+        # Calculate local mean and std
+        mean = cv2.boxFilter(img, cv2.CV_32F, (window_size, window_size))
+        sqmean = cv2.boxFilter(img ** 2, cv2.CV_32F, (window_size, window_size))
+        std = np.sqrt(sqmean - mean ** 2)
+        
+        # Sauvola threshold
+        threshold = mean * (1 + k * ((std / 128.0) - 1))
+        
+        binary = np.where(img > threshold, 255, 0).astype(np.uint8)
+        return binary
+    
+    def _foreground_ratio(self, binary: np.ndarray) -> float:
+        """Calculate foreground pixel ratio"""
+        return float(cv2.countNonZero(binary)) / float(binary.size)
+    
     def _morphology(self, img: np.ndarray) -> np.ndarray:
         """
-        Apply morphological operations untuk bersihkan image
-        
-        Methode: 
-        - Opening: Remove small noise
-        - Closing: Fill small gaps
+        Morphological operations - clean up noise
         """
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-        opened = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel, iterations=1)
-        closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel, iterations=1)
+        # Remove small noise
+        kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        opened = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel_small, iterations=1)
+        
+        # Connect broken text
+        kernel_medium = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 1))
+        closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel_medium, iterations=1)
+        
         return closed
