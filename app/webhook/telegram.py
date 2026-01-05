@@ -1,6 +1,7 @@
 import os
 import httpx
 import logging
+import asyncio
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
 from app.config import BOT_TOKEN, TELEGRAM_API_URL
@@ -15,19 +16,22 @@ from app.services import (
     build_history_summary,
     create_excel_report,
 )
+from typing import List, Dict, Optional
+from collections import defaultdict
+from datetime import datetime, timedelta
 
 HELP_TEXT = (
     "Selamat datang di Slip Ku 💰\n\n"
     "Aku bisa membantu kamu:\n"
     "• Mencatat pemasukan dan pengeluaran dari chat biasa\n"
     "• Mencatat MULTIPLE transaksi dalam satu pesan\n"
+    "• Mencatat MULTIPLE struk sekaligus (kirim beberapa foto)\n"
     "• Melihat ringkasan transaksi harian & mingguan\n"
-    "• Mengekspor riwayat transaksi mingguan, bulanan, dan tahunan ke Excel\n\n"
+    "• Mengekspor riwayat transaksi ke Excel\n\n"
     "Contoh pesan transaksi:\n"
     "• makan siang 25rb\n"
     "• gaji bulan ini masuk 5jt\n"
-    "• transfer ke teman 100rb\n"
-    "• hari ini beli makan 50rb, kemarin beli rokok 20rb, gajian 500rb ✨\n\n"
+    "• hari ini beli makan 50rb, kemarin beli rokok 20rb, gajian 500rb\n\n"
     "Perintah:\n"
     "• /start atau /help – lihat pesan ini\n"
     "• /history_harian – ringkasan transaksi hari ini\n"
@@ -39,6 +43,12 @@ HELP_TEXT = (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# ✅ BARU: Storage untuk batch images (media_group)
+# Format: {media_group_id: {"user_id": int, "chat_id": int, "images": [...], "timestamp": datetime}}
+pending_media_groups: Dict[str, Dict] = defaultdict(dict)
+MEDIA_GROUP_TIMEOUT = 2.0  # Tunggu 2 detik untuk semua images dalam group
+
 
 async def send_telegram_message(chat_id: int, text: str, client: httpx.AsyncClient):
     """Send text message to Telegram user"""
@@ -73,12 +83,6 @@ async def send_telegram_document(
 def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None]:
     """
     Mendeteksi intent khusus (help/history/export) + periode (today/week/month/year)
-    dari teks natural sederhana bhs Indonesia / Inggris.
-
-    Contoh yang ditangani:
-    - "riwayat hari ini", "ringkasan 7 hari terakhir", "rekap pengeluaran sebulan terakhir"
-    - "laporan mingguan dalam bentuk excel", "export semua transaksi bulan ini"
-    - "butuh bantuan cara pakai", "/start", "help", dll.
     """
     if not text:
         return None, None, None
@@ -87,115 +91,30 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
     if not s:
         return None, None, None
 
-    # membuang leading slash utk command /start, /history_mingguan.
     s = s.lstrip("/")
 
     def has_any(phrases: list[str]) -> bool:
         return any(p in s for p in phrases)
 
-    # ========== HELP ==========
+    # HELP
     help_phrases = [
-        "help",
-        "bantuan",
-        "butuh bantuan",
-        "tolong bantu",
-        "cara pakai",
-        "cara penggunaan",
-        "cara guna",
-        "cara menggunakan",
-        "cara kerja",
-        "cara pake",
-        "tutorial",
-        "panduan",
-        "petunjuk",
-        "gimana pakai",
-        "gimana cara",
-        "gmn cara",
-        "gmn pkai",
-        "gmn pakai",
-        "cara pnggunaan",
-        "cara mnggunakan",
-        "pnduan",
-        "ptunjuk",
-        "tlong bntu",
-        "btuh bntuan",
-        "bntu",
-        "bntuan",
+        "help", "bantuan", "butuh bantuan", "tolong bantu", "cara pakai",
+        "cara penggunaan", "cara guna", "cara menggunakan", "cara kerja",
+        "cara pake", "tutorial", "panduan", "petunjuk", "gimana pakai",
+        "gimana cara", "gmn cara", "gmn pkai", "gmn pakai",
     ]
 
     if s.startswith("start") or has_any(help_phrases):
         return "help", None, None
 
-    # ========== PERIODE ==========
+    # PERIODE
     period: str | None = None
 
-    # Hari ini
-    today_phrases = [
-        "hari ini",
-        "hr ini",
-        "harian",
-        "today",
-        "this day",
-        "hari sekarang",
-        "siang ini",
-        "malam ini",
-        "hri ini",
-    ]
-
-    # Minggu / 7 hari
-    week_phrases = [
-        "minggu ini",
-        "minggu kemarin",
-        "mingguan",
-        "pekan ini",
-        "pekan kemarin",
-        "7 hari",
-        "tujuh hari",
-        "7 hari terakhir",
-        "seminggu",
-        "seminggu terakhir",
-        "last week",
-        "this week",
-    ]
-
-    # Bulan / 30 hari
-    month_phrases = [
-        "bulan ini",
-        "bulan kemarin",
-        "bulanan",
-        "30 hari",
-        "tiga puluh hari",
-        "30 hari terakhir",
-        "sebulan",
-        "sebulan terakhir",
-        "last month",
-        "this month",
-    ]
-
-    # Tahun / all-time-ish
-    year_phrases = [
-        "tahun ini",
-        "tahun kemarin",
-        "tahunan",
-        "365 hari",
-        "tiga ratus enam puluh lima hari",
-        "setahun",
-        "setahun terakhir",
-        "last year",
-        "this year",
-    ]
-
-    # Frasa "semua waktu" / "all time" kita map ke "year"
-    all_time_phrases = [
-        "semua waktu",
-        "sepanjang waktu",
-        "seluruh riwayat",
-        "semua riwayat",
-        "all time",
-        "all history",
-        "semua transaksi",
-        "seluruh transaksi",
-    ]
+    today_phrases = ["hari ini", "hr ini", "harian", "today", "this day"]
+    week_phrases = ["minggu ini", "mingguan", "7 hari", "seminggu", "last week", "this week"]
+    month_phrases = ["bulan ini", "bulanan", "30 hari", "sebulan", "last month", "this month"]
+    year_phrases = ["tahun ini", "tahunan", "365 hari", "setahun", "last year", "this year"]
+    all_time_phrases = ["semua waktu", "all time", "semua transaksi", "seluruh transaksi"]
 
     if has_any(today_phrases):
         period = "today"
@@ -206,68 +125,20 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
     elif has_any(year_phrases) or has_any(all_time_phrases):
         period = "year"
 
-    # ========== DIRECTION (Income/Expense) ==========
+    # DIRECTION
     direction: str | None = None
-
-    income_words = [
-        "pemasukan",
-        "income",
-        "penghasilan",
-        "gaji",
-        "uang masuk",
-        "penerimaan",
-        "masuk saja",
-        "hanya pemasukan",
-        "hanya income",
-    ]
-
-    expense_words = [
-        "pengeluaran",
-        "biaya",
-        "beban",
-        "spending",
-        "expense",
-        "uang keluar",
-        "belanja",
-        "hanya pengeluaran",
-        "hanya expense",
-    ]
+    income_words = ["pemasukan", "income", "penghasilan", "gaji", "uang masuk"]
+    expense_words = ["pengeluaran", "biaya", "expense", "uang keluar", "belanja"]
 
     if has_any(income_words):
         direction = "Pemasukan"
     elif has_any(expense_words):
         direction = "Pengeluaran"
 
-    # ========== HISTORY ==========
+    # HISTORY
     history_phrases = [
-        "history",
-        "histori",
-        "riwayat",
-        "riwayat transaksi",
-        "riwayat keuangan",
-        "ringkasan",
-        "ringkasan transaksi",
-        "rekap",
-        "rekapan",
-        "rekap transaksi",
-        "summary",
-        "summary transaksi",
-        "lihat transaksi",
-        "liat transaksi",
-        "lihat pemasukan",
-        "liat pemasukan",
-        "lihat pengeluaran",
-        "liat pengeluaran",
-        "mau lihat",
-        "mau liat",
-        "pengen lihat",
-        "pengen liat",
-        "ingin lihat",
-        "ingin liat",
-        "cek transaksi",
-        "cek pengeluaran",
-        "cek pemasukan",
-        "report transaksi",
+        "history", "histori", "riwayat", "ringkasan", "rekap", "summary",
+        "lihat transaksi", "liat transaksi", "cek transaksi",
     ]
 
     if has_any(history_phrases):
@@ -275,25 +146,10 @@ def detect_special_intent(text: str) -> tuple[str | None, str | None, str | None
             period = "today"
         return "history", period, direction
 
-    # ========== EXPORT / LAPORAN / EXCEL ==========
+    # EXPORT
     export_phrases = [
-        "export",
-        "ekspor",
-        "expot",      
-        "laporan",
-        "report",
-        "cetak",
-        "download",
-        "unduh",
-        "kirim file",
-        "kirim laporan",
-        "kirim excel",
-        "file excel",
-        "excel",
-        "spreadsheet",
-        "xlsx",
-        "xls",
-        "laporan transaksi",
+        "export", "ekspor", "laporan", "report", "download", "unduh",
+        "kirim file", "kirim excel", "excel", "xlsx",
     ]
 
     if has_any(export_phrases):
@@ -310,19 +166,17 @@ async def handle_text_message(
     text: str,
     client: httpx.AsyncClient,
 ):
-    """
-    Handle text message - supports commands and multiple transactions
-    """
+    """Handle text message - supports commands and multiple transactions"""
     try:
         clean = text.strip()
         intent, period, direction = detect_special_intent(clean)
 
-        # ========== 1) HELP COMMAND ==========
+        # HELP COMMAND
         if intent == "help":
             await send_telegram_message(chat_id, HELP_TEXT, client)
             return
  
-        # ========== 2) HISTORY COMMANDS ==========
+        # HISTORY COMMANDS
         if intent == "history":
             txs, label = await get_transactions_for_period(
                 prisma=prisma,
@@ -330,12 +184,11 @@ async def handle_text_message(
                 period=period or "today",
                 direction=direction,
             )
-
             summary = build_history_summary(label, txs)
             await send_telegram_message(chat_id, summary, client)
             return
 
-        # ========== 3) EXPORT COMMANDS ==========
+        # EXPORT COMMANDS
         if intent == "export":
             file_path, file_name = await create_excel_report(
                 prisma=prisma,
@@ -363,15 +216,10 @@ async def handle_text_message(
                 "year": "Laporan transaksi tahunan (365 hari terakhir)"
             }.get(period, "Laporan transaksi")
 
-            await send_telegram_document(
-                chat_id,
-                file_path,
-                caption_text,
-                client,
-            )
+            await send_telegram_document(chat_id, file_path, caption_text, client)
             return
 
-        # ========== 4) PROCESS AS TRANSACTION(S) ==========
+        # PROCESS AS TRANSACTION(S)
         results = await process_text_message(
             user_id=user_id,
             text=text,
@@ -386,48 +234,40 @@ async def handle_text_message(
             )
             return
 
-        # ========== HANDLE MULTIPLE TRANSACTIONS RESPONSE ==========
+        # BUILD RESPONSE
         if len(results) == 1:
-            # Single transaction response
             tx = results[0]
             lines = ["✅ Transaksi berhasil dicatat."]
-            
             if tx.get("amount") is not None:
                 lines.append(f"• Jumlah: Rp {tx['amount']:,.0f}")
             if tx.get("category"):
                 lines.append(f"• Kategori: {tx['category']}")
-            if tx.get("direction"):
-                lines.append(f"• Tipe: {tx['direction']}")
-            
+            if tx.get("intent"):
+                direction_text = "Pemasukan" if tx['intent'] == "income" else "Pengeluaran"
+                lines.append(f"• Tipe: {direction_text}")
         else:
-            # Multiple transactions response
             lines = [f"✅ Berhasil mencatat {len(results)} transaksi:\n"]
             
-            total_income = sum(tx.get("amount", 0) for tx in results if tx.get("direction") == "income")
-            total_expense = sum(tx.get("amount", 0) for tx in results if tx.get("direction") == "expense")
+            total_income = sum(tx.get("amount", 0) for tx in results if tx.get("intent") == "income")
+            total_expense = sum(tx.get("amount", 0) for tx in results if tx.get("intent") == "expense")
             
             for i, tx in enumerate(results, 1):
-                emoji = "💰" if tx.get("direction") == "income" else "💸"
+                emoji = "💰" if tx.get("intent") == "income" else "💸"
                 amount = tx.get("amount", 0)
-                category = tx.get("category", "N/A")
+                category = tx.get("category", "lainnya")
                 note = tx.get("note", "")
                 
                 lines.append(f"{i}. {emoji} Rp {amount:,.0f} - {category}")
                 if note and len(note) > 0:
                     lines.append(f"   📝 {note[:50]}")
             
-            # Add summary
             lines.append("\n📊 Ringkasan:")
             if total_income > 0:
-                lines.append(f"💰 Pemasukan: Rp {total_income:,.0f}")
+                lines.append(f"💰 Total Pemasukan: Rp {total_income:,.0f}")
             if total_expense > 0:
-                lines.append(f"💸 Pengeluaran: Rp {total_expense:,.0f}")
+                lines.append(f"💸 Total Pengeluaran: Rp {total_expense:,.0f}")
 
-        await send_telegram_message(
-            chat_id,
-            "\n".join(lines),
-            client,
-        )
+        await send_telegram_message(chat_id, "\n".join(lines), client)
 
     except Exception as e:
         logger.error(f"Error in handle_text_message: {e}", exc_info=True)
@@ -438,14 +278,13 @@ async def handle_text_message(
         )
 
 
-async def process_receipt_background(
+# ✅ BARU: Process single receipt dan return result (tanpa kirim pesan)
+async def process_single_receipt(
     user_id: int,
-    chat_id: int,
     receipt_id: int,
     file_path: str,
-    client: httpx.AsyncClient,
-):
-    """Proses struk di worker lalu kirim ringkasan transaksi ke Telegram."""
+) -> Optional[Dict]:
+    """Process single receipt dan return result dict"""
     try:
         result = await process_image_message(
             user_id=user_id,
@@ -453,40 +292,153 @@ async def process_receipt_background(
             file_path=file_path,
             source="telegram",
         )
+        return result
+    except Exception as e:
+        logger.error(f"Error processing receipt {receipt_id}: {e}", exc_info=True)
+        return None
 
-        if not result:
+
+# ✅ BARU: Process multiple receipts dan kirim 1 pesan gabungan
+async def process_multiple_receipts_background(
+    user_id: int,
+    chat_id: int,
+    receipts: List[Dict],  # List of {"receipt_id": int, "file_path": str}
+    client: httpx.AsyncClient,
+):
+    """Process multiple receipts dan kirim 1 pesan gabungan"""
+    try:
+        logger.info(f"Processing {len(receipts)} receipts for user {user_id}")
+        
+        results = []
+        errors = []
+        
+        # Process each receipt
+        for i, receipt_data in enumerate(receipts):
+            receipt_id = receipt_data["receipt_id"]
+            file_path = receipt_data["file_path"]
+            
+            logger.info(f"Processing receipt {i+1}/{len(receipts)}: {receipt_id}")
+            
+            result = await process_single_receipt(
+                user_id=user_id,
+                receipt_id=receipt_id,
+                file_path=file_path,
+            )
+            
+            if result:
+                result["receipt_index"] = i + 1
+                results.append(result)
+            else:
+                errors.append(i + 1)
+        
+        # Build combined response
+        if not results and errors:
             await send_telegram_message(
                 chat_id,
-                "❌ Struk sudah diproses, tapi aku belum bisa mengenali transaksinya. Coba foto yang lebih jelas ya.",
+                f"❌ Gagal memproses {len(errors)} struk. Coba kirim foto yang lebih jelas.",
                 client,
             )
             return
-
-        amount = result.get("amount")
-        category = result.get("category")
-        direction = result.get("direction")
-
-        lines = ["✅ Transaksi dari struk berhasil dicatat."]
-        if amount is not None:
-            lines.append(f"• Jumlah: Rp {amount:,.0f}")
-        if category:
-            lines.append(f"• Kategori: {category}")
-        if direction:
-            lines.append(f"• Tipe: {direction}")
-
-        await send_telegram_message(
-            chat_id,
-            "\n".join(lines),
-            client,
-        )
+        
+        if len(results) == 1:
+            # Single receipt result
+            tx = results[0]
+            lines = ["✅ Transaksi dari struk berhasil dicatat."]
+            if tx.get("amount") is not None:
+                lines.append(f"• Jumlah: Rp {tx['amount']:,.0f}")
+            if tx.get("category"):
+                lines.append(f"• Kategori: {tx['category']}")
+            if tx.get("intent"):
+                direction_text = "Pemasukan" if tx['intent'] == "income" else "Pengeluaran"
+                lines.append(f"• Tipe: {direction_text}")
+        else:
+            # Multiple receipts result
+            lines = [f"✅ Berhasil mencatat {len(results)} transaksi dari struk:\n"]
+            
+            total_income = sum(tx.get("amount", 0) for tx in results if tx.get("intent") == "income")
+            total_expense = sum(tx.get("amount", 0) for tx in results if tx.get("intent") == "expense")
+            
+            for i, tx in enumerate(results, 1):
+                emoji = "💰" if tx.get("intent") == "income" else "💸"
+                amount = tx.get("amount", 0)
+                category = tx.get("category", "lainnya")
+                note = tx.get("note", "")
+                
+                lines.append(f"{i}. {emoji} Rp {amount:,.0f} - {category}")
+                if note and len(note) > 0:
+                    # Truncate note if too long
+                    note_short = note[:40] + "..." if len(note) > 40 else note
+                    lines.append(f"   📝 {note_short}")
+            
+            # Summary
+            lines.append("\n📊 Ringkasan:")
+            if total_income > 0:
+                lines.append(f"💰 Total Pemasukan: Rp {total_income:,.0f}")
+            if total_expense > 0:
+                lines.append(f"💸 Total Pengeluaran: Rp {total_expense:,.0f}")
+            
+            # Show errors if any
+            if errors:
+                lines.append(f"\n⚠️ {len(errors)} struk gagal diproses")
+        
+        await send_telegram_message(chat_id, "\n".join(lines), client)
+        logger.info(f"✅ Sent combined response for {len(results)} receipts")
 
     except Exception as e:
-        logger.error(f"Error in process_receipt_background: {e}", exc_info=True)
+        logger.error(f"Error in process_multiple_receipts_background: {e}", exc_info=True)
         await send_telegram_message(
             chat_id,
             "❌ Terjadi error saat memproses struk. Coba lagi nanti.",
             client,
         )
+
+
+# ✅ BARU: Process media group setelah timeout
+async def process_media_group_after_delay(
+    media_group_id: str,
+    user_id: int,
+    chat_id: int,
+    client: httpx.AsyncClient,
+    background_tasks: BackgroundTasks,
+):
+    """Tunggu sebentar lalu process semua images dalam media group"""
+    await asyncio.sleep(MEDIA_GROUP_TIMEOUT)
+    
+    # Check if media group masih ada (belum diproses)
+    if media_group_id not in pending_media_groups:
+        return
+    
+    group_data = pending_media_groups.pop(media_group_id, None)
+    if not group_data or not group_data.get("receipts"):
+        return
+    
+    receipts = group_data["receipts"]
+    logger.info(f"Processing media group {media_group_id} with {len(receipts)} images")
+    
+    # Process all receipts
+    await process_multiple_receipts_background(
+        user_id=user_id,
+        chat_id=chat_id,
+        receipts=receipts,
+        client=client,
+    )
+
+
+# ✅ DIPERBARUI: Process single receipt background (untuk gambar tunggal)
+async def process_receipt_background(
+    user_id: int,
+    chat_id: int,
+    receipt_id: int,
+    file_path: str,
+    client: httpx.AsyncClient,
+):
+    """Process single receipt di background"""
+    await process_multiple_receipts_background(
+        user_id=user_id,
+        chat_id=chat_id,
+        receipts=[{"receipt_id": receipt_id, "file_path": file_path}],
+        client=client,
+    )
 
 
 @router.post("/telegram")
@@ -498,7 +450,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
 
         message = body.get("message")
         if not message:
-            raise HTTPException(status_code=400, detail="No message in update")
+            return JSONResponse(status_code=200, content={"status": "no_message"})
 
         # Extract message data
         from_data = message.get("from", {})
@@ -510,6 +462,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
         text = message.get("text")
         photos = message.get("photo")
         document = message.get("document")
+        media_group_id = message.get("media_group_id")  # ✅ BARU: Detect media group
 
         # Get or create user
         user = await user_service.get_or_create_user(
@@ -540,7 +493,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             )
             
             await send_telegram_message(chat_id, "📄 Dokumen diterima. Sedang diproses...", client)
-            logger.info(f"Document processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
+            logger.info(f"Document processed - User: {user.id}, Receipt: {receipt.id}")
 
             background_tasks.add_task(
                 process_receipt_background,
@@ -572,19 +525,60 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
                 file_size=media_info["file_size"]
             )
 
-            await send_telegram_message(chat_id, "📸 Foto struk diterima. Sedang diproses...", client)
-            logger.info(f"Photo processed - User: {user.id}, Receipt: {receipt.id}, Message: {message_id}")
+            logger.info(f"Photo processed - User: {user.id}, Receipt: {receipt.id}, MediaGroup: {media_group_id}")
 
-            background_tasks.add_task(
-                process_receipt_background,
-                user.id,
-                chat_id,
-                receipt.id,
-                media_info["file_path"],
-                client,
-            )
+            # ✅ BARU: Check if part of media group (multiple images)
+            if media_group_id:
+                # Add to pending media group
+                if media_group_id not in pending_media_groups:
+                    pending_media_groups[media_group_id] = {
+                        "user_id": user.id,
+                        "chat_id": chat_id,
+                        "receipts": [],
+                        "timestamp": datetime.now(),
+                        "notified": False,
+                    }
+                    
+                    # Send notification only once
+                    await send_telegram_message(
+                        chat_id, 
+                        "📸 Beberapa foto struk diterima. Sedang diproses...", 
+                        client
+                    )
+                
+                # Add receipt to group
+                pending_media_groups[media_group_id]["receipts"].append({
+                    "receipt_id": receipt.id,
+                    "file_path": media_info["file_path"],
+                })
+                
+                # Schedule processing after delay (only for first image in group)
+                if len(pending_media_groups[media_group_id]["receipts"]) == 1:
+                    background_tasks.add_task(
+                        process_media_group_after_delay,
+                        media_group_id,
+                        user.id,
+                        chat_id,
+                        client,
+                        background_tasks,
+                    )
+                
+                return JSONResponse(status_code=200, content={"status": "photo_added_to_group"})
+            
+            else:
+                # Single image - process normally
+                await send_telegram_message(chat_id, "📸 Foto struk diterima. Sedang diproses...", client)
+                
+                background_tasks.add_task(
+                    process_receipt_background,
+                    user.id,
+                    chat_id,
+                    receipt.id,
+                    media_info["file_path"],
+                    client,
+                )
 
-            return JSONResponse(status_code=200, content={"status": "photo_processed"})
+                return JSONResponse(status_code=200, content={"status": "photo_processed"})
         
         # ========== HANDLE TEXT MESSAGE ==========
         if text:
@@ -592,14 +586,9 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
 
             intent, period, direction = detect_special_intent(text)
             
-            # Process commands immediately (no background)
+            # Process commands immediately
             if intent in ("help", "history", "export"):
-                await handle_text_message(
-                    user.id,
-                    chat_id,
-                    text,
-                    client,
-                )
+                await handle_text_message(user.id, chat_id, text, client)
                 return JSONResponse(status_code=200, content={"status": "command_processed"})
 
             # Process transactions in background
@@ -619,9 +608,6 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
 
     except Exception as e:
         logger.error(f"Telegram Webhook Error: {e}", exc_info=True)
-        import traceback
-        traceback.print_exc()
-
         return JSONResponse(
             status_code=200,
             content={"status": "error_handled", "error": str(e)}
