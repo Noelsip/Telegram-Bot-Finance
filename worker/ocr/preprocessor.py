@@ -322,6 +322,28 @@ class ImagePreprocessor:
         """Calculate foreground pixel ratio"""
         return float(cv2.countNonZero(binary)) / float(binary.size)
     
+    def _sauvola_threshold(self, img: np.ndarray, window_size: int = 15, k: float = 0.2) -> np.ndarray:
+        """
+        Sauvola's binarization - good for varying illumination
+        ✅ FIX: Handle negative variance from floating point errors
+        """
+        # Convert to float32 untuk menghindari precision issues
+        img_float = img.astype(np.float32)
+        
+        # Calculate local mean and std
+        mean = cv2.boxFilter(img_float, cv2.CV_32F, (window_size, window_size))
+        sqmean = cv2.boxFilter(img_float ** 2, cv2.CV_32F, (window_size, window_size))
+        
+        # ✅ FIX: Clip variance to avoid negative values from floating point errors
+        variance = sqmean - mean ** 2
+        variance = np.maximum(variance, 0)  # Force non-negative
+        std = np.sqrt(variance)
+        
+        # Sauvola threshold
+        threshold = mean * (1 + k * ((std / 128.0) - 1))
+        
+        binary = np.where(img > threshold, 255, 0).astype(np.uint8)
+        return binary
     def _morphology(self, img: np.ndarray) -> np.ndarray:
         """
         Morphological operations - clean up noise

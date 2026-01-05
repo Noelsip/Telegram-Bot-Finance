@@ -124,25 +124,13 @@ class TesseractOCR:
     def _build_config(self, psm: int) -> str:
         """
         Build Tesseract config - optimized for receipts
+        ✅ FIX: Proper escaping for whitelist
         """
         config_parts = [
             f"--psm {psm}",
             "--oem 3",  # LSTM + Legacy
-            "--dpi 300",
-            "-c preserve_interword_spaces=1",
+            "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?-/()" 
         ]
-        
-        # ✅ Receipt-optimized whitelist
-        # Allow: letters, numbers, common punctuation, Indonesian/English chars
-        whitelist = (
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            "abcdefghijklmnopqrstuvwxyz"
-            "0123456789"
-            ".,;:!?'-/()[]{}@#$%&*+=<> \n\t"
-            "RpIDR"  # Currency symbols
-        )
-        
-        config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
         
         return " ".join(config_parts)
     
