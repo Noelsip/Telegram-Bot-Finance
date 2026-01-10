@@ -88,7 +88,7 @@ async def send_telegram_document(
         logger.error(f"Error sending Telegram document: {e}", exc_info=True)
 
 
-# ✅ NEW: LLM-powered intent detection
+# ✅ FIXED: LLM-powered intent detection
 async def detect_intent_llm(text: str) -> Dict:
     """
     Use LLM to classify user intent
@@ -99,13 +99,17 @@ async def detect_intent_llm(text: str) -> Dict:
             - confidence: float
             - period: Optional[str]
             - direction: Optional[str]
-            - reasoning: str
+            - reason: str (FIXED: was 'reasoning')
     """
     try:
         result = await classify_intent(text)
+        
+        # ✅ FIX: Use 'reason' instead of 'reasoning'
+        reason = result.get('reason', result.get('reasoning', 'No reason provided'))
+        
         logger.info(
             f"Intent detected: {result['intent']} "
-            f"(confidence: {result['confidence']:.2f}) - {result['reasoning']}"
+            f"(confidence: {result['confidence']:.2f}) - {reason}"
         )
         return result
     except Exception as e:
@@ -116,7 +120,7 @@ async def detect_intent_llm(text: str) -> Dict:
             "confidence": 0.3,
             "period": None,
             "direction": None,
-            "reasoning": "Fallback to transaction due to error"
+            "reason": "Fallback to transaction due to error"
         }
 
 
@@ -197,8 +201,11 @@ async def handle_text_message(
         if intent == UserIntent.SMALL_TALK:
             responses = {
                 "hai": "Hai! Ada yang bisa aku bantu? 😊",
+                "halo": "Halo! Ada yang bisa aku bantu? 😊",
                 "terima kasih": "Sama-sama! 🙏",
+                "thanks": "Sama-sama! 🙏",
                 "ok": "Siap! Ada lagi yang bisa aku bantu?",
+                "oke": "Siap! Ada lagi yang bisa aku bantu?",
                 "mantap": "Terima kasih! 🎉"
             }
             
