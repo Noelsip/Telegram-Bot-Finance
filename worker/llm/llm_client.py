@@ -13,9 +13,7 @@ DEFAULT_MODEL = "gpt-4o-mini"
 class LLMAPIError(Exception):
     pass
 
-
 _client: OpenAI | None = None
-
 
 def _get_client() -> OpenAI:
     """Singleton OpenAI client"""
