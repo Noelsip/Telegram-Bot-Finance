@@ -1,6 +1,6 @@
 # test_intent_classifier.py
 import asyncio
-from worker.llm.intent_classifier import clarify_intent, UserIntent
+from worker.llm.intent_classifier import classify_intent, UserIntent
 
 async def test_classification():
     """Test various user inputs"""
@@ -39,7 +39,7 @@ async def test_classification():
     failed = 0
     
     for text, expected_intent in test_cases:
-        result = await clarify_intent(text)
+        result = await classify_intent(text)
         detected_intent = result["intent"]
         confidence = result["confidence"]
         reasoning = result["reasoning"]

@@ -176,7 +176,7 @@ class IntentClassifier:
 # Singleton instance
 _classifier: Optional[IntentClassifier] = None
 
-async def clarify_intent(text: str) -> Dict:
+async def classify_intent(text: str) -> Dict:
     """
         Main function untuk classify user intent
         
