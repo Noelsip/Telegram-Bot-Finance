@@ -42,7 +42,8 @@ class IntentClassifier:
                     - reasion: str (why LLM chose this intent)
         """
         try:
-            logger.info("Classifying intent for text: ", text[:100] + "...")
+            # ✅ FIX: Gunakan format string yang benar
+            logger.info("Classifying intent for text: %s", text[:100] + "...")
 
             # membangub clasifikasi prompt
             prompt = self._build_classification_prompt(text)
@@ -60,13 +61,14 @@ class IntentClassifier:
             result = self._parse_llm_response(llm_text)
             
             logger.info(
-                f"Intent classified: {result['intent']} "
-                f"(confidence: {result['confidence']:.2f})"
+                "Intent classified: %s (confidence: %.2f)",
+                result['intent'],
+                result['confidence']
             )
             
             return result
         except Exception as e:
-            logger.error(f"Intent classification failed: {str(e)}", exc_info=True)
+            logger.error("Intent classification failed: %s", str(e), exc_info=True)
 
             # Fallback
             return {
@@ -76,6 +78,7 @@ class IntentClassifier:
                 "direction": None,
                 "reason": "Fallback due to error"
             }
+    
     def _build_classification_prompt(self, text: str) -> str:
         """
             Build the prompt for intent classification
@@ -129,6 +132,7 @@ class IntentClassifier:
             """
         
         return system + "\n" + user_input
+    
     def _parse_llm_response(self, llm_text: str) -> Dict:
         """
             Parse the LLM response text into structured data
@@ -150,7 +154,7 @@ class IntentClassifier:
             try:
                 intent = UserIntent(intent_str)
             except ValueError:
-                logger.warning(f"Unknown intent from LLM: {intent_str}")
+                logger.warning("Unknown intent from LLM: %s", intent_str)
                 intent = UserIntent.UNKNOWN
                 
             return {
@@ -162,8 +166,8 @@ class IntentClassifier:
             }
             
         except Exception as e:
-            logger.error(f"Failed to parse LLM response: {str(e)}")
-            logger.debug(f"LLM response text: {llm_text}")
+            logger.error("Failed to parse LLM response: %s", str(e))
+            logger.debug("LLM response text: %s", llm_text)
             
             # Fallback
             return {
@@ -173,6 +177,7 @@ class IntentClassifier:
                 "direction": None,
                 "reason": "Failed to parse LLM response"
             }
+
 # Singleton instance
 _classifier: Optional[IntentClassifier] = None
 
@@ -191,25 +196,3 @@ async def classify_intent(text: str) -> Dict:
     if _classifier is None:
         _classifier = IntentClassifier()
     return await _classifier.classify(text)
-
-# # Helper function untuk backward compatibility
-# async def get_intent_and_params(text: str) -> tuple[str, Optional[str], Optional[str]]:
-#     """
-#         Wrapper function yang compatible dengan signature lama
-        
-#         Returns:
-#             Tuple[intent, period, direction]
-#     """
-#     result = await clarify_intent(text)
-    
-#     intent_str = result["intent"].value
-#     period = result.get("period")
-#     direction = result.get("direction")
-    
-#     # Map to old format
-#     if intent_str == "small_talk":
-#         return None, None, None
-#     elif intent_str == "unknown":
-#         return "transaction", None, None
-#     else:
-#         return intent_str, period, direction
